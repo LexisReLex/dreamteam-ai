@@ -4,10 +4,9 @@ dist/
 
 # SQLite database files — never commit; exposes demo data at rest
 *.db
-data.db
-data.db-shm
-data.db-wal
-data.db-journal
+*.db-shm
+*.db-wal
+*.db-journal
 
 .env
 .env.local
