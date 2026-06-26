@@ -1,0 +1,7 @@
+{
+  "example": true,
+  "id": "example-security-sqli",
+  "role": "security",
+  "title": "VOORBEELD — SQL-injectie in login",
+  "prompt": "Audit dit login-endpoint. Benoem de kwetsbaarheid met severity, een concreet aanvalsscenario, en lever een veilige fix.\n\n```js\napp.post('/login', (req, res) => {\n  const { user, pass } = req.body;\n  const sql = `SELECT * FROM users WHERE name = '${user}' AND pass = '${pass}'`;\n  db.query(sql, (err, rows) => {\n    if (rows.length) res.json({ ok: true, token: rows[0].id });\n    else res.status(401).json({ ok: false });\n  });\n});\n```\n\nNoem naast de injectie minstens één extra zwakheid (bijv. wachtwoordopslag of tokenontwerp)."
+}

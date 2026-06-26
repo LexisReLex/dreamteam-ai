@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "copywriter-t1-lexxy-productbeschrijving-de",
+  "role": "copywriter",
+  "title": "Productbeschrijving (Lexxy, Duits)",
+  "prompt": "Schreibe eine deutsche Produktbeschreibung (~80 Wörter) für eine hochwertige Herbst-Übergangsjacke. Zielgruppe DE, Markenstimme premium-casual, mit einem klaren Call-to-Action. Verwende nur allgemeine, plausible Eigenschaften; erfinde keine spezifischen Materialien oder Größen.",
+  "rubric": "vloeiend natuurlijk Duits · premium toon · 1 duidelijke CTA · geen verzonnen specs (materialen/maten) · ~80 woorden."
+}

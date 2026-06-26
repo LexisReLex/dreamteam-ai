@@ -1,0 +1,29 @@
+{
+  "_note": "Goedkoop/gratis veld voor proefruns (~€0). Prijzen geverifieerd tegen openrouter.ai/api/v1/models op 2026-06-20. Gebruik: npm run bench:run -- --models models.cheap.json",
+  "models": [
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "label": "DeepSeek V4 Flash",
+      "promptPer1M": 0.09,
+      "completionPer1M": 0.18
+    },
+    {
+      "id": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "label": "Hermes 3 405B (free)",
+      "promptPer1M": 0.0,
+      "completionPer1M": 0.0
+    },
+    {
+      "id": "minimax/minimax-m3",
+      "label": "MiniMax-M3",
+      "promptPer1M": 0.30,
+      "completionPer1M": 1.20
+    },
+    {
+      "id": "nousresearch/hermes-4-405b",
+      "label": "Hermes 4 405B",
+      "promptPer1M": 1.00,
+      "completionPer1M": 3.00
+    }
+  ]
+}

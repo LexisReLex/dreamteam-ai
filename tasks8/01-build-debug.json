@@ -1,0 +1,9 @@
+{
+  "id": "t1-build-debug",
+  "domain": "build-debug",
+  "role": "debugger",
+  "title": "Next.js/Prisma winkelwagen met ingebouwde bug",
+  "runs": 2,
+  "prompt": "Hieronder een Next.js (App Router) server action met Prisma. Klanten melden dat het winkelwagentotaal te laag is zodra ze meer dan 1 stuk van een product bestellen. Analyseer de code, vind de werkelijke oorzaak, leg uit waarom het fout gaat, benoem randgevallen, en lever de gefixte productie-code.\n\n```ts\n// app/actions/cart.ts\n'use server'\nimport { prisma } from '@/lib/prisma'\n\nexport async function getCartTotal(cartId: string) {\n  const items = await prisma.cartItem.findMany({\n    where: { cartId },\n    include: { product: true },\n  })\n\n  let totalCents = 0\n  for (const item of items) {\n    totalCents += item.product.priceCents\n  }\n\n  return { totalCents, currency: 'EUR' }\n}\n```\n\nSchema (relevant deel):\n```prisma\nmodel CartItem {\n  id        String  @id @default(cuid())\n  cartId    String\n  quantity  Int\n  product   Product @relation(fields: [productId], references: [id])\n  productId String\n}\nmodel Product { id String @id; priceCents Int }\n```",
+  "rubric": "Vindt de echte bug: totaal telt prijs niet maal quantity (item.product.priceCents zonder * item.quantity). Legt oorzaak helder uit, benoemt randgevallen (quantity 0/negatief, ontbrekend product, integer-overflow/afronding), levert correcte fix. Verzint geen extra bugs die er niet zijn."
+}

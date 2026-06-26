@@ -1,0 +1,9 @@
+{
+  "id": "t5-data-extract",
+  "domain": "data-extract",
+  "role": "data-extractor",
+  "title": "Ruwe tekst -> schone JSON volgens schema",
+  "runs": 2,
+  "prompt": "Zet de ruwe ordertekst om naar geldige JSON exact volgens dit schema. Gebruik null voor ontbrekende velden, verzin niets, normaliseer bedragen naar eurocenten (integer).\n\nSCHEMA:\n{\n  \"orderId\": string,\n  \"customer\": { \"name\": string, \"email\": string|null },\n  \"items\": [ { \"sku\": string, \"qty\": integer, \"unitPriceCents\": integer } ],\n  \"totalCents\": integer,\n  \"notes\": string|null\n}\n\nRUWE TEKST:\n\"Bestelling #LX-2291 van Marijke de Wit. Ze bestelde 2x sjaal (art. SCARF-07) a 24,95 en 1x muts MUTS-03 voor 18 euro. Totaal 67,90. E-mail onbekend. Klant vraagt om cadeauverpakking.\"",
+  "rubric": "Geldige JSON exact volgens schema. orderId 'LX-2291', name 'Marijke de Wit', email null, twee items met juiste sku/qty/unitPriceCents (2495 en 1800), totalCents 6790, notes over cadeauverpakking. Bedragen correct naar centen. Geen verzonnen velden, geen markdown-uitleg eromheen."
+}

@@ -1,0 +1,26 @@
+{
+  "name": "dreamteam-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Benchmark-harnas: laat meerdere LLM's parallel racen op dezelfde rol + taak en scoort op kwaliteit, kosten en latency (DreamTeam).",
+  "scripts": {
+    "bench": "tsx src/index.ts",
+    "bench:run": "tsx src/index.ts --run",
+    "bench:demo": "tsx src/index.ts --demo",
+    "bench:rescore": "tsx src/rescore.ts",
+    "bench:arms": "tsx src/arms3/index.ts",
+    "dispatch": "tsx src/dispatch/cli.ts",
+    "serve": "tsx src/dispatch/http.ts",
+    "mcp": "tsx src/mcp/server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

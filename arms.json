@@ -1,0 +1,45 @@
+{
+  "_note": "3-armen-benchmark. ALLE armen lopen via een OpenAI-compatibel endpoint. A en B via OpenRouter (https://openrouter.ai/api/v1); C via lokale OpenFugu-server (http://localhost:8088/v1). Prijzen per 1M tokens (in/out) zijn LIVE geverifieerd tegen openrouter.ai/api/v1/models op 2026-06-26. Sakana-direct (api.sakana.ai) is EU-geblokkeerd (403) en wordt NIET gebruikt; arm B draait sakana/fugu-ultra via OpenRouter.",
+  "_assumptions_armA": "Arm A = 'eigen stack' = de dispatch-routingfilosofie uit de vault (model-router). De vault-routing dekt alleen de seats copywriter/klantenservice/research. Voor research-synth gebruik ik de research-seat-default (deepseek) en voor nl-copy de copywriter-seat-default (gpt-5.5) — die twee zijn NIET verzonnen, ze komen uit models-routing.json v1. De overige 5 domeinen (build-debug, security, conflicting-brief, data-extract, music-logic, multi-step) hebben GEEN seat in de vault-routing; daarvoor kies ik een model dat de routingfilosofie spiegelt (correctheid-kritisch -> premium gpt-5.5/sonnet; mechanisch -> cheap minimax/deepseek). Dit zijn EXPLICIETE AANNAMES, geen vault-beleid. De vault-routing zelf is niet gewijzigd.",
+  "arms": [
+    {
+      "key": "A",
+      "label": "Eigen stack (dispatch)",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "FUGU_API_KEY",
+      "modelByDomain": {
+        "build-debug": "anthropic/claude-sonnet-4.6",
+        "security": "openai/gpt-5.5",
+        "research-synth": "deepseek/deepseek-v4-flash",
+        "conflicting-brief": "openai/gpt-5.5",
+        "data-extract": "minimax/minimax-m3",
+        "music-logic": "openai/gpt-5.5",
+        "nl-copy": "openai/gpt-5.5",
+        "multi-step": "anthropic/claude-sonnet-4.6"
+      }
+    },
+    {
+      "key": "B",
+      "label": "Sakana Fugu-Ultra (huur)",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "FUGU_API_KEY",
+      "model": "sakana/fugu-ultra"
+    },
+    {
+      "key": "C",
+      "label": "OpenFugu (zelf, lokaal)",
+      "baseURL": "http://localhost:8088/v1",
+      "apiKeyEnv": "FUGU_API_KEY",
+      "model": "openfugu"
+    }
+  ],
+  "prices": {
+    "_note": "USD per 1M tokens, live geverifieerd 2026-06-26. Voor arm C is dit de prijs die OpenFugu's worker-pool bij OpenRouter betaalt; de echte C-kosten = som van interne pool-calls en zijn NIET zichtbaar in de enkele serve-respons (zie scorecard-bevinding).",
+    "anthropic/claude-sonnet-4.6": { "promptPer1M": 3.0, "completionPer1M": 15.0 },
+    "openai/gpt-5.5": { "promptPer1M": 5.0, "completionPer1M": 30.0 },
+    "deepseek/deepseek-v4-flash": { "promptPer1M": 0.09, "completionPer1M": 0.18 },
+    "minimax/minimax-m3": { "promptPer1M": 0.30, "completionPer1M": 1.20 },
+    "sakana/fugu-ultra": { "promptPer1M": 5.0, "completionPer1M": 30.0 },
+    "openfugu": { "promptPer1M": 0.0, "completionPer1M": 0.0 }
+  }
+}

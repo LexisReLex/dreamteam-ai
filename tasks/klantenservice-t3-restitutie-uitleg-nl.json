@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "klantenservice-t3-restitutie-uitleg-nl",
+  "role": "klantenservice",
+  "title": "Restitutie-uitleg (Klanttijd, NL)",
+  "prompt": "Schrijf een korte, vriendelijke uitleg-tekst (3–4 zinnen) voor in een mail wanneer een klant geld terugkrijgt. Geruststellend en helder.",
+  "rubric": "helder · geruststellend · kort (3–4 zinnen) · correcte toon."
+}

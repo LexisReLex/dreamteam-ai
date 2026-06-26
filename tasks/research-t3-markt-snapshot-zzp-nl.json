@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "research-t3-markt-snapshot-zzp-nl",
+  "role": "research",
+  "title": "Markt-snapshot (DreamTeam, NL)",
+  "prompt": "Lever een 1-pagina markt-snapshot voor \"boekingsapps voor NL-ZZP'ers\": spelers, kansen, risico's. Markeer expliciet wat aanname is.",
+  "rubric": "gestructureerd · scheidt feit van aanname · eerlijk over onzekerheid · strategisch bruikbaar."
+}

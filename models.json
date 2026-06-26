@@ -1,0 +1,47 @@
+{
+  "_note": "Prijzen per 1.000.000 tokens in USD (prompt=in, completion=out). Geverifieerd tegen openrouter.ai/api/v1/models op 2026-06-20 (live opgehaald, niet gegokt). VOLLEDIGE line-up = goedkoop/gratis veld + premium. Voor alleen het goedkope veld: models.cheap.json.",
+  "models": [
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "label": "DeepSeek V4 Flash",
+      "promptPer1M": 0.09,
+      "completionPer1M": 0.18
+    },
+    {
+      "id": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "label": "Hermes 3 405B (free)",
+      "promptPer1M": 0.0,
+      "completionPer1M": 0.0
+    },
+    {
+      "id": "minimax/minimax-m3",
+      "label": "MiniMax-M3",
+      "promptPer1M": 0.30,
+      "completionPer1M": 1.20
+    },
+    {
+      "id": "nousresearch/hermes-4-405b",
+      "label": "Hermes 4 405B",
+      "promptPer1M": 1.00,
+      "completionPer1M": 3.00
+    },
+    {
+      "id": "anthropic/claude-sonnet-4.6",
+      "label": "Claude Sonnet 4.6",
+      "promptPer1M": 3.00,
+      "completionPer1M": 15.00
+    },
+    {
+      "id": "openai/gpt-5.5",
+      "label": "GPT-5.5",
+      "promptPer1M": 5.00,
+      "completionPer1M": 30.00
+    },
+    {
+      "id": "google/gemini-3.1-pro-preview",
+      "label": "Gemini 3.1 Pro",
+      "promptPer1M": 2.00,
+      "completionPer1M": 12.00
+    }
+  ]
+}

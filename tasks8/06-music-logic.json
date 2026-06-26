@@ -1,0 +1,15 @@
+{
+  "id": "t6-music-logic",
+  "domain": "music-logic",
+  "role": "logic-solver",
+  "title": "Transpositie-puzzel met één juist antwoord",
+  "runs": 3,
+  "prompt": "Transponeer dit akkoordenschema een KLEINE TERTS (3 halve tonen) OMHOOG. Geef exact vier akkoorden, in dezelfde volgorde. Werk stap voor stap en sluit af met een regel die begint met 'ANTWOORD:' gevolgd door de vier akkoorden.\n\nSchema: D - A - Bm - G",
+  "rubric": "Eén juist antwoord: D->F, A->C, Bm->Dm, G->Bb (A#). Volgorde behouden. Correcte enharmonische spelling. Stapsgewijze controle aanwezig. Fout als een akkoord verkeerd getransponeerd is of de kwaliteit (mineur) niet behouden blijft.",
+  "objectiveCheck": {
+    "type": "regex",
+    "pattern": "ANTWOORD:[\\s\\S]*?(?=[\\s\\S]*\\bF\\b)(?=[\\s\\S]*\\bC\\b)(?=[\\s\\S]*\\bDm\\b)(?=[\\s\\S]*(\\bBb\\b|\\bB\\u266d\\b|\\bA#\\b))",
+    "flags": "",
+    "note": "Slaagt als de ANTWOORD-regel F, C, Dm en Bb/A# bevat (de enige juiste transpositie)."
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "t3-research-synth",
+  "domain": "research-synth",
+  "role": "research",
+  "title": "Synthese 5 concurrent-pagina's (Lexxy, DE-markt) -> productbeslissing",
+  "runs": 2,
+  "prompt": "Lexxy is een Shopify-store in damesmode voor de Duitse markt. Hieronder vijf (gefingeerde, maar als gegeven te behandelen) concurrent-pagina's. Synthetiseer een onderbouwde productbeslissing: welk positioneringsgat zou Lexxy moeten innemen en met welk prijspunt? Gebruik UITSLUITEND de gegeven data; markeer wat je niet weet als \"onbekend\", verzin geen cijfers.\n\n[Pagina 1 — NordlichtWear] Nachhaltige Basics aus Bio-Baumwolle. Preisspanne 39-69 EUR. USP: CO2-neutraler Versand, GOTS-zertifiziert. Zielgruppe 30-45. Lieferung 4-6 Werktage.\n\n[Pagina 2 — KielerKleid] Festliche Kleider und Occasionwear. Preisspanne 89-159 EUR. USP: Maßgeschneiderter Service, Styling-Beratung per Video. Zielgruppe 25-40.\n\n[Pagina 3 — FlinkMode] Schnelle Trendmode, wochentliche Drops. Preisspanne 19-39 EUR. USP: niedrigster Preis, Versand am selben Tag. Bewertungen klagen über Qualität.\n\n[Pagina 4 — AtelierGrau] Minimalistische Premium-Garderobe, kleine Kollektionen. Preisspanne 120-280 EUR. USP: limitierte Stückzahl, Made in Germany. Zielgruppe 35-55, hohes Einkommen.\n\n[Pagina 5 — RheinBasics] Erschwingliche Alltagsmode, breite Größen 34-52. Preisspanne 25-55 EUR. USP: inklusive Größen, einfache Retoure. Zielgruppe breit.",
+  "rubric": "Gestructureerd (tabel feit/positionering). Identificeert een reëel gat uit de 5 gegeven pagina's (bv. duurzaam EN inclusief-maten in midden-prijssegment 55-89 EUR, dat niemand bezet). Onderbouwt prijspunt uit de gegeven spannen. Markeert onbekend i.p.v. te gokken. Verzint geen marktcijfers of features buiten de input."
+}

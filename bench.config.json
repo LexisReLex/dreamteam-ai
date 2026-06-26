@@ -1,0 +1,14 @@
+{
+  "_note": "Weging telt op tot 1.0. judgeModel = sterk model, bewust niet bezuinigd. judgePromptPer1M/judgeCompletionPer1M = prijs van het jurymodel (USD per 1M tokens), geverifieerd 2026-06-20, alleen voor de kostenraming. Override jury per run met: -- --judge <slug>.",
+  "weights": {
+    "quality": 0.6,
+    "cost": 0.25,
+    "latency": 0.15
+  },
+  "judgeModel": "anthropic/claude-opus-4.8",
+  "judgePromptPer1M": 5.00,
+  "judgeCompletionPer1M": 25.00,
+  "concurrency": 4,
+  "maxTokens": 2500,
+  "temperature": 0.2
+}

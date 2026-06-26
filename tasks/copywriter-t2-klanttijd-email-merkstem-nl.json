@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "copywriter-t2-klanttijd-email-merkstem-nl",
+  "role": "copywriter",
+  "title": "E-mail in merkstem (Klanttijd, NL)",
+  "prompt": "Herschrijf deze droge afspraakbevestiging tot een warme, heldere NL e-mail die óók kort uitlegt of/hoe er vooruit is betaald:\n\n\"Uw afspraak is bevestigd op [datum] om [tijd]. Tot dan.\"\n\nBehoud de feiten (datum/tijd als placeholders); verzin geen extra details.",
+  "rubric": "warm + helder · transparant over betaalstatus · correct NL · behoudt de feiten, verzint niets."
+}

@@ -1,0 +1,12 @@
+{
+  "id": "t8-multi-step",
+  "domain": "multi-step",
+  "role": "debugger",
+  "title": "Multi-step: beurt 2 corrigeert beurt 1",
+  "runs": 2,
+  "turns": [
+    "Schrijf een TypeScript-functie isValidDutchIban(input: string): boolean die een Nederlands IBAN valideert (lengte 18, begint met NL, mod-97-check). Geef alleen de functie.",
+    "Je functie faalt op twee echte gevallen: (1) invoer met spaties zoals 'NL91 ABNA 0417 1643 00', en (2) invoer in kleine letters zoals 'nl91abna0417164300'. Beide zijn geldige IBANs die jouw functie nu afkeurt. Corrigeer de functie zodat ze deze normaliseert vóór validatie, zonder de rest van de logica te breken. Geef de volledige gecorrigeerde functie."
+  ],
+  "rubric": "Beurt 2 corrigeert de eigen beurt-1-functie correct: normaliseert (verwijdert spaties, uppercase) vóór de checks, behoudt de mod-97 + lengte + NL-prefix-logica, breekt niets. Erkent de fout uit beurt 1. Mod-97-implementatie blijft correct. Straf als de fix de normalisatie mist of de oorspronkelijke logica sloopt."
+}

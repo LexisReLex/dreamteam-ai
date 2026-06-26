@@ -1,0 +1,7 @@
+{
+  "example": true,
+  "id": "example-debugger-offbyone",
+  "role": "debugger",
+  "title": "VOORBEELD — off-by-one in paginatie",
+  "prompt": "Deze functie hoort de items voor pagina `page` (1-based) terug te geven met `size` per pagina, maar gebruikers melden dat het eerste item van elke pagina ontbreekt en de laatste pagina soms leeg is.\n\n```js\nfunction paginate(items, page, size) {\n  const start = page * size;\n  const end = start + size;\n  return items.slice(start, end);\n}\n```\n\nTraceer de oorzaak en lever een gefixte versie met randgeval-analyse (page=1, laatste pagina, page buiten bereik)."
+}

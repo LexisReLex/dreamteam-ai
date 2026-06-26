@@ -1,0 +1,9 @@
+{
+  "id": "t7-nl-copy",
+  "domain": "nl-copy",
+  "role": "copywriter-degroot",
+  "title": "NL-copy in De Groot-merkstem (Frame Control)",
+  "runs": 2,
+  "prompt": "Schrijf een korte landingspagina-sectie (max 150 woorden) voor een weerbaarheidstraining van Lex de Groot, getiteld 'Frame Control'. Doel: de lezer (professional die met agressie/grensoverschrijdend gedrag te maken krijgt) voelt herkenning en boekt een kennismaking. Lever: een koers-zettende kop, 2-3 korte alinea's in zijn merkstem (direct, kalm-gezaghebbend, frame-controlerend, geen bombast/clichés), en één heldere call-to-action. Verzin geen specifieke prijzen, data of garanties.",
+  "rubric": "Raakt de merkstem: direct, aardend, frame-controlerend, geen holle motivatie-taal of clichés. Herkenning bij de doelgroep. Correct, natuurlijk Nederlands. Binnen 150 woorden, met kop + CTA. Verzint geen prijzen/data/garanties. Straf bombast, AI-cliché ('in de wereld van vandaag'), en vaagheid."
+}

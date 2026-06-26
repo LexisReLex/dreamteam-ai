@@ -1,0 +1,8 @@
+{
+  "_note": "Config voor de dispatch-laag (fase 2). routingPath leeg = vault-default in routing.ts. oranjeThresholdUsd = boven dit bedrag/call vraagt de dispatcher eerst go (--yes), ook bij een cheap model. Premium-tier vraagt altijd go. Override per run met flags: --routing, --max-tokens, --threshold, --concurrency.",
+  "routingPath": "",
+  "maxTokens": 1200,
+  "temperature": 0.2,
+  "concurrency": 4,
+  "oranjeThresholdUsd": 0.25
+}

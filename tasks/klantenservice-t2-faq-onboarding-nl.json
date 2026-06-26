@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "klantenservice-t2-faq-onboarding-nl",
+  "role": "klantenservice",
+  "title": "FAQ bouwen (Klanttijd, NL)",
+  "prompt": "Bouw 8 beknopte FAQ-items uit veelgestelde onboarding-vragen voor Klanttijd: Mollie koppelen, boekingspagina delen, rooster instellen, en online vooruitbetalen vs. in de zaak betalen. Houd elk antwoord kort en klantvriendelijk. Vul geen onbekende details in met gokwerk.",
+  "rubric": "accuraat t.o.v. gegeven domeinfeiten · beknopt · klantvriendelijk · geen gaten opgevuld met gokken · 8 items geleverd."
+}

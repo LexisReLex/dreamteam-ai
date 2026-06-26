@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "klantenservice-t1-boze-klantmail-noshow-nl",
+  "role": "klantenservice",
+  "title": "Boze klantmail no-show (Klanttijd, NL)",
+  "prompt": "Een klant kreeg €15 no-show-inhouding en snapt niet waar dat geld heen ging. Schrijf een empathisch antwoord dat uitlegt: de inhouding gaat naar de ondernemer (Klanttijd rekent 0% commissie), is terug te zien in het Mollie-overzicht, en hoe je voortaan op tijd kosteloos annuleert. Verzin geen bedragen of beleid dat niet gegeven is.",
+  "rubric": "echte empathie · feitelijk correct (0% commissie, geld → ondernemer, Mollie) · geen verzonnen beleid · de-escalerend."
+}

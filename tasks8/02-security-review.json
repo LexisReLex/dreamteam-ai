@@ -1,0 +1,15 @@
+{
+  "id": "t2-security-review",
+  "domain": "security",
+  "role": "security",
+  "title": "PR-diff met subtiele betaal/auth-kwetsbaarheid",
+  "runs": 3,
+  "prompt": "Review onderstaande PR-diff van een betaal-endpoint. Benoem alle kwetsbaarheden met severity en een concrete fix. Wees precies over de ernstigste.\n\n```diff\n--- a/api/checkout.ts\n+++ b/api/checkout.ts\n@@\n export async function POST(req: Request) {\n   const session = await getSession(req)\n   if (!session) return new Response('Unauthorized', { status: 401 })\n-  const order = await db.order.findUnique({ where: { id: body.orderId } })\n-  const amountDue = order.totalCents\n+  const body = await req.json()\n+  const order = await db.order.findUnique({ where: { id: body.orderId } })\n+  // Bereken het te betalen bedrag opnieuw uit de meegestuurde items (sneller dan join)\n+  const amountDue = body.items.reduce((s, it) => s + it.priceCents * it.quantity, 0)\n   const charge = await stripe.charges.create({\n     amount: amountDue,\n     currency: 'eur',\n     source: body.token,\n   })\n   await db.order.update({ where: { id: body.orderId }, data: { paid: true } })\n   return Response.json({ ok: true })\n }\n```",
+  "rubric": "Moet de KERN-kwetsbaarheid vinden: het te betalen bedrag wordt herberekend uit door de client meegestuurde body.items/priceCents i.p.v. uit de order in de database -> prijs-manipulatie (klant zet priceCents op 0). Fix: bedrag altijd server-side uit order.totalCents. Bonus: ontbrekende ownership-check (order hoort niet per se bij session.user -> IDOR) en markeert order mogelijk null. Severity correct (prijsmanipulatie = kritiek).",
+  "objectiveCheck": {
+    "type": "regex",
+    "pattern": "(?=[\\s\\S]*(client|body\\.items|meegestuurd|request|payload|aanvraag))(?=[\\s\\S]*(prijs|price|bedrag|amount|total))(?=[\\s\\S]*(server|database|db\\.order|order\\.total|herbereken|manipul|tamper))",
+    "flags": "i",
+    "note": "Slaagt als het antwoord client-gestuurde prijs + server/db-bron + manipulatie benoemt (de kern-vuln)."
+  }
+}

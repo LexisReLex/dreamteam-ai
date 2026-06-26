@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "research-t1-concurrent-feature-scan-nl",
+  "role": "research",
+  "title": "Concurrent-feature-scan (Klanttijd, NL)",
+  "prompt": "Vat 3 concurrenten (Salonized, Treatwell, Booksy) samen op kernfeatures + prijsmodel in een gestructureerde tabel-tekst. Gebruik alleen algemeen bekende positionering; markeer wat je niet zeker weet als \"onbekend\".",
+  "rubric": "gestructureerd (tabel) · feitelijk · markeert onzekerheid als \"onbekend\" i.p.v. te gokken · bruikbaar overzicht."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "t4-conflicting-brief",
+  "domain": "conflicting-brief",
+  "role": "tech-lead",
+  "title": "Tegenstrijdige opdracht: benoemen + oplossen",
+  "runs": 2,
+  "prompt": "Je krijgt deze opdracht van een klant voor een nieuwe boekings-app. Voer hem niet blind uit. Benoem expliciet alle interne tegenstrijdigheden en onmogelijke combinaties, en stel daarna een coherent, haalbaar voorstel voor dat de belangrijkste doelen redt. Wees eerlijk over wat niet tegelijk kan.\n\nBRIEF: \"Bouw een boekings-app die volledig offline werkt zonder internet, maar realtime de agenda's van alle medewerkers synchroniseert. Hij moet 100% privacy bieden en geen data opslaan, maar wel de volledige boekingshistorie van elke klant jaren teruglaten zien. Lanceer volgende week, productie-klaar, met volledige test-dekking en een nieuw zelfgebouwd betaalsysteem (geen externe providers zoals Stripe vanwege kosten). Het moet gratis te hosten zijn maar 100.000 gelijktijdige gebruikers aankunnen. Houd het simpel.\"",
+  "rubric": "Benoemt de echte conflicten: (1) offline zonder internet vs realtime sync, (2) geen data opslaan vs jarenlange historie, (3) eigen betaalsysteem in een week vs productie-klaar/veilig + PCI, (4) gratis hosting vs 100k concurrent. Gokt niet rond, kiest prioriteiten, doet een haalbaar gefaseerd tegenvoorstel met tradeoffs. Straf als het de brief klakkeloos 'oplost' zonder de tegenstrijdigheden te benoemen."
+}

@@ -1,0 +1,7 @@
+{
+  "example": true,
+  "id": "example-performance-nplusone",
+  "role": "performance",
+  "title": "VOORBEELD — N+1 query in orderoverzicht",
+  "prompt": "Dit endpoint wordt traag bij veel orders. Identificeer het knelpunt en lever een geoptimaliseerde versie met uitleg.\n\n```js\nasync function getOrdersWithCustomer(db) {\n  const orders = await db.query('SELECT * FROM orders');\n  for (const order of orders) {\n    order.customer = await db.query('SELECT * FROM customers WHERE id = ?', [order.customer_id]);\n  }\n  return orders;\n}\n```\n\nBenoem de complexiteit nu en na de fix, en noem een schaalbaarheidsrisico dat overblijft."
+}

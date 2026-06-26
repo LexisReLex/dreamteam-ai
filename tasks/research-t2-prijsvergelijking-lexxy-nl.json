@@ -1,0 +1,8 @@
+{
+  "example": false,
+  "id": "research-t2-prijsvergelijking-lexxy-nl",
+  "role": "research",
+  "title": "Prijsvergelijking samenvatten (Lexxy, NL)",
+  "prompt": "Gegeven deze ruwe data — Product A €49 (concurrent X), €59 (concurrent Y); Product B €120 (X), €99 (Y) — schrijf een heldere vergelijkings-samenvatting + 1 scherp inzicht. Voeg geen cijfers toe die niet in de data staan.",
+  "rubric": "klopt exact met de input · geen toegevoegde cijfers · 1 bruikbaar inzicht."
+}
