@@ -1,0 +1,8 @@
+{
+  "example": true,
+  "id": "example-orkestrator-rate-limiter",
+  "role": "orkestrator",
+  "title": "VOORBEELD — rate limiter door 4 agents",
+  "prompt": "Bouw een kleine in-memory rate limiter voor een API: sta maximaal N verzoeken per client-key per tijdvenster toe. Doorloop alle vier de rollen in één beurt: Architect (ontwerp de aanpak en datastructuur), Engineer (schrijf de implementatie in JavaScript), Reviewer (benoem minstens één randgeval of zwakte, bv. geheugengroei of vensterprecisie), Optimizer (lever de definitieve, productie-klare versie). Markeer elke rol duidelijk. Houd het beknopt.",
+  "rubric": "4 rollen zichtbaar gemarkeerd · werkende JS-implementatie · minstens 1 reëel randgeval benoemd · definitieve geoptimaliseerde versie · beknopt, geen opsmuk."
+}

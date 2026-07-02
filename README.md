@@ -37,8 +37,8 @@ cp .env.example .env
 ## Hoe het werkt
 
 ```
-roles/   rol-systeemprompts (10 actieve modi uit senior-ingenieur-modi.md)
-tasks/   concrete taak-inputs per rol (nu 3 VOORBEELD-taken)
+roles/   rol-systeemprompts (11 actieve modi uit senior-ingenieur-modi.md)
+tasks/   concrete taak-inputs per rol (nu 4 VOORBEELD-taken)
 models.json      model-lineup + prijzen per 1M tokens (in/out)
 bench.config.json  weging + jurymodel + concurrency + maxTokens
 src/     runner (OpenRouter-calls) → judge (LLM-as-judge) → score → report
@@ -65,9 +65,9 @@ Pas je de weging/scoring aan? Herbouw het rapport gratis uit dat bestand met `np
 
 ---
 
-## De 10 rollen (modi)
+## De 11 rollen (modi)
 
-Overgenomen uit `00-System/prompts/senior-ingenieur-modi.md` — **10 actieve modi** (07 is vervallen, niet verzonnen):
+Overgenomen uit `00-System/prompts/senior-ingenieur-modi.md` — **11 actieve modi** (07 teruggevonden 3 jul 2026, roster nu 11/11 compleet):
 
 | Bestand | Modus |
 |---|---|
@@ -77,12 +77,13 @@ Overgenomen uit `00-System/prompts/senior-ingenieur-modi.md` — **10 actieve mo
 | `roles/performance.md` | 04 — Performance-optimalisatie |
 | `roles/clean-refactor.md` | 05 — Refactor naar clean architecture |
 | `roles/backend-architect.md` | 06 — Backend-systeemarchitect |
+| `roles/orkestrator.md` | 07 — AI-engineeringteam (4 agents in één) |
 | `roles/frontend.md` | 08 — Frontend-engineer |
 | `roles/tech-lead.md` | 09 — Technical-lead |
 | `roles/security.md` | 10 — Security-audit |
 | `roles/devops.md` | 11 — DevOps + deployment |
 
-Alle 10 rollen staan klaar. De **3 voorbeeld-taken** dekken nu `debugger`, `performance` en `security`. Voeg taken toe om de andere rollen te benchmarken.
+Alle 11 rollen staan klaar. De **4 voorbeeld-taken** dekken nu `debugger`, `performance`, `security` en `orkestrator`. Voeg taken toe om de andere rollen te benchmarken.
 
 ---
 
