@@ -320,6 +320,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
 
     const run = await runLoop(loop);
+    if (!run) return res.status(409).json({ error: "Deze loop draait al. Wacht tot de huidige run klaar is." });
     res.json({ run, loop: loopWithAgent(storage.getLoop(id)) });
   });
 

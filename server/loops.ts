@@ -61,8 +61,32 @@ function trimState(state: string): string {
   return state.slice(0, MAX_STATE_CHARS) + "\n\n…(oudere historie afgekapt)";
 }
 
+// ─── Run-lock ──────────────────────────────────────────────────────────────────
+// Voorkomt dat dezelfde loop tegelijk twee keer draait (bv. een geplande tick én
+// een handmatige "Draai nu"). Dat zou de state-ruggengraat racen en dubbel
+// API-budget kosten. Per-loop lock; verschillende loops draaien wel parallel.
+const inFlight = new Set<number>();
+
+export function isLoopRunning(id: number): boolean {
+  return inFlight.has(id);
+}
+
 // ─── Eén loop-iteratie draaien: maker → checker → state → score ────────────────
-export async function runLoop(loop: Loop): Promise<LoopRun> {
+// Geeft null terug als de loop al draait (geen dubbele run, geen API-kosten).
+export async function runLoop(loop: Loop): Promise<LoopRun | null> {
+  if (inFlight.has(loop.id)) {
+    console.log(`[loop ${loop.id}] draait al — run overgeslagen.`);
+    return null;
+  }
+  inFlight.add(loop.id);
+  try {
+    return await executeLoop(loop);
+  } finally {
+    inFlight.delete(loop.id);
+  }
+}
+
+async function executeLoop(loop: Loop): Promise<LoopRun> {
   const runAt = new Date().toISOString();
   const agent = storage.getAgent(loop.agentId);
   const agentName = agent?.name ?? "Agent";
