@@ -1,10 +1,19 @@
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
 
-const sqlite = new Database("data.db");
+// Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
+// persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
+// volume is SQLite vluchtig: loops, runs en state overleven een redeploy niet.
+const DB_PATH = process.env.DB_PATH || "data.db";
+// Zorg dat de map bestaat (bv. een net gemount /data-volume met subdir).
+try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch { /* map bestaat al of is cwd */ }
+
+const sqlite = new Database(DB_PATH);
 export const db = drizzle(sqlite, { schema });
 
 // Enable WAL mode for performance
