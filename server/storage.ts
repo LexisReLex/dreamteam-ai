@@ -4,7 +4,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
+import { rankKnowledge } from "./knowledge";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, Orchestration, InsertOrchestration, OrchestrationStep, InsertOrchestrationStep, Knowledge, InsertKnowledge } from "@shared/schema";
 
 // Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
 // persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
@@ -91,10 +92,44 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS orchestrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    command TEXT NOT NULL,
+    plan TEXT NOT NULL DEFAULT '',
+    debrief TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'planning',
+    current_agent_id INTEGER,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS orchestration_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_id INTEGER NOT NULL,
+    agent_id INTEGER NOT NULL,
+    step_order INTEGER NOT NULL DEFAULT 0,
+    task TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
 `);
 
 // Safe migration: add language column if not exists
 try { sqlite.exec("ALTER TABLE user_profile ADD COLUMN language TEXT NOT NULL DEFAULT 'nl'"); } catch (_) { /* column already exists */ }
+// Safe migration: add current_agent_id to orchestrations for live status
+try { sqlite.exec("ALTER TABLE orchestrations ADD COLUMN current_agent_id INTEGER"); } catch (_) { /* column already exists */ }
+// Safe migration: add reads (knowledge consulted) to orchestrations
+try { sqlite.exec("ALTER TABLE orchestrations ADD COLUMN reads INTEGER NOT NULL DEFAULT 0"); } catch (_) { /* column already exists */ }
 
 export interface IStorage {
   // Agents
@@ -129,6 +164,20 @@ export interface IStorage {
   // Loop runs
   getLoopRuns(loopId: number, limit?: number): LoopRun[];
   createLoopRun(data: InsertLoopRun): LoopRun;
+
+  // Orchestrations
+  getOrchestrations(limit?: number): Orchestration[];
+  getOrchestration(id: number): Orchestration | undefined;
+  createOrchestration(data: InsertOrchestration): Orchestration;
+  updateOrchestration(id: number, data: Partial<Orchestration>): Orchestration | undefined;
+  getOrchestrationSteps(orchestrationId: number): OrchestrationStep[];
+  createOrchestrationStep(data: InsertOrchestrationStep): OrchestrationStep;
+
+  // Knowledge Vault
+  getKnowledge(): Knowledge[];
+  createKnowledge(data: InsertKnowledge): Knowledge;
+  deleteKnowledge(id: number): void;
+  searchKnowledge(query: string, limit?: number): Knowledge[];
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -250,6 +299,69 @@ export class Storage implements IStorage {
   createLoopRun(data: InsertLoopRun): LoopRun {
     const now = new Date().toISOString();
     return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Orchestrations ──────────────────────────────────────────────────────────
+  getOrchestrations(limit = 20): Orchestration[] {
+    return db
+      .select()
+      .from(schema.orchestrations)
+      .all()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  getOrchestration(id: number): Orchestration | undefined {
+    return db.select().from(schema.orchestrations).where(eq(schema.orchestrations.id, id)).get();
+  }
+
+  createOrchestration(data: InsertOrchestration): Orchestration {
+    const now = new Date().toISOString();
+    return db.insert(schema.orchestrations).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  updateOrchestration(id: number, data: Partial<Orchestration>): Orchestration | undefined {
+    const { id: _ignore, ...rest } = data;
+    if (Object.keys(rest).length > 0) {
+      db.update(schema.orchestrations).set(rest).where(eq(schema.orchestrations.id, id)).run();
+    }
+    return this.getOrchestration(id);
+  }
+
+  getOrchestrationSteps(orchestrationId: number): OrchestrationStep[] {
+    return db
+      .select()
+      .from(schema.orchestrationSteps)
+      .where(eq(schema.orchestrationSteps.orchestrationId, orchestrationId))
+      .all()
+      .sort((a, b) => a.stepOrder - b.stepOrder);
+  }
+
+  createOrchestrationStep(data: InsertOrchestrationStep): OrchestrationStep {
+    const now = new Date().toISOString();
+    return db.insert(schema.orchestrationSteps).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Knowledge Vault ──────────────────────────────────────────────────────────
+  getKnowledge(): Knowledge[] {
+    return db
+      .select()
+      .from(schema.knowledge)
+      .all()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  createKnowledge(data: InsertKnowledge): Knowledge {
+    const now = new Date().toISOString();
+    return db.insert(schema.knowledge).values({ ...data, tags: data.tags ?? "", createdAt: now }).returning().get();
+  }
+
+  deleteKnowledge(id: number): void {
+    db.delete(schema.knowledge).where(eq(schema.knowledge.id, id)).run();
+  }
+
+  searchKnowledge(query: string, limit = 4): Knowledge[] {
+    return rankKnowledge(query, this.getKnowledge(), limit);
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {

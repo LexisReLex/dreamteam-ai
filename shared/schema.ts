@@ -112,3 +112,68 @@ export const loopRuns = sqliteTable("loop_runs", {
 export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
 export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
 export type LoopRun = typeof loopRuns.$inferSelect;
+
+// ─── Orchestraties (CEO / Command Layer) ──────────────────────────────────────
+// Eén opdracht van de operator gaat naar de orchestrator (het "CEO-brein"): die
+// plant het werk, routeert deelopdrachten naar specialist-agents (de makers) en
+// bundelt hun output tot één operator-debrief. Dit is het orchestrator-worker
+// patroon uit de agentic-OS demo, bovenop de bestaande agents.
+export const ORCHESTRATION_STATUS = ["planning", "dispatching", "synthesizing", "done", "error"] as const;
+
+export const orchestrations = sqliteTable("orchestrations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  command: text("command").notNull(),
+  plan: text("plan").notNull().default(""), // korte routing-rationale van de orchestrator
+  debrief: text("debrief").notNull().default(""), // eindsamenvatting voor de operator
+  status: text("status", { enum: ORCHESTRATION_STATUS }).notNull().default("planning"),
+  currentAgentId: integer("current_agent_id"), // welke specialist nú draait (live status), null = geen
+  reads: integer("reads").notNull().default(0), // aantal kennisbronnen uit de Vault dat is geraadpleegd
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertOrchestrationSchema = createInsertSchema(orchestrations)
+  .omit({ id: true, plan: true, debrief: true, status: true, tokensUsed: true, createdAt: true })
+  .extend({
+    command: z.string().min(1).max(1000),
+  });
+export type InsertOrchestration = z.infer<typeof insertOrchestrationSchema>;
+export type Orchestration = typeof orchestrations.$inferSelect;
+
+// Orchestratie-stappen — één rij per specialist die werd geroutet (maker-output).
+export const orchestrationSteps = sqliteTable("orchestration_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orchestrationId: integer("orchestration_id").notNull(),
+  agentId: integer("agent_id").notNull(),
+  stepOrder: integer("step_order").notNull().default(0),
+  task: text("task").notNull().default(""), // de deelopdracht die de orchestrator toewees
+  output: text("output").notNull().default(""), // de output van de specialist
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertOrchestrationStepSchema = createInsertSchema(orchestrationSteps).omit({ id: true, createdAt: true });
+export type InsertOrchestrationStep = z.infer<typeof insertOrchestrationStepSchema>;
+export type OrchestrationStep = typeof orchestrationSteps.$inferSelect;
+
+// ─── Knowledge Vault (RAG / geheugen-laag) ────────────────────────────────────
+// Duurzame kennisbronnen die de orchestrator en specialisten kunnen raadplegen
+// (de "READS" / Knowledge Vault uit de agentic-OS demo). Retrieval is
+// keyword-gebaseerd bovenop SQLite — geen externe embeddings-provider nodig.
+export const knowledge = sqliteTable("knowledge", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  tags: text("tags").notNull().default(""), // komma-gescheiden labels
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertKnowledgeSchema = createInsertSchema(knowledge)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    title: z.string().min(1).max(120),
+    content: z.string().min(1).max(8000),
+    tags: z.string().max(200).optional(),
+  });
+export type InsertKnowledge = z.infer<typeof insertKnowledgeSchema>;
+export type Knowledge = typeof knowledge.$inferSelect;

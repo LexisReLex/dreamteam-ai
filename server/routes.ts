@@ -1,11 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema, insertOrchestrationSchema, insertKnowledgeSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
+import { startOrchestration, ORCHESTRATOR_MODEL, SPECIALIST_MODEL } from "./orchestrator";
 import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
@@ -87,6 +88,28 @@ function seedDatabase() {
 
   for (const task of sampleTasks) {
     storage.createTask(task);
+  }
+
+  // Voorbeeld-kennis in de Knowledge Vault zodat RAG meteen iets te lezen heeft.
+  const sampleKnowledge = [
+    {
+      title: "Bedrijfsprofiel DreamTeam",
+      content: "DreamTeam levert een AI-agentplatform voor Nederlandse MKB-ondernemers. Doelgroep: ondernemers met 1-50 medewerkers die marketing, sales en content willen versnellen zonder groot team. Toon van de merkstem: helder, direct, geen jargon, altijd concreet en actionable. Kernbelofte: 'jouw eigen team van AI-specialisten'.",
+      tags: "bedrijf, merk, doelgroep, positionering",
+    },
+    {
+      title: "Doelgroep & tone of voice",
+      content: "Primaire doelgroep: Nederlandse MKB-ondernemers, vaak drukke generalisten. Ze willen snel resultaat, geen theorie. Schrijf in het Nederlands, je-vorm, korte zinnen, concrete voorbeelden en cijfers. Vermijd Engelse buzzwords tenzij ingeburgerd. Elke output eindigt met een duidelijke volgende stap.",
+      tags: "doelgroep, tone of voice, content, schrijfstijl",
+    },
+    {
+      title: "Aanbod & prijzen",
+      content: "Drie plannen: Starter (klein gebruik), Pro (dagelijks gebruik, populairst) en Team (meerdere gebruikers). Verkoopargumenten: tijdsbesparing, altijd beschikbaar specialistenteam, en meetbare output via loops en scores. Belangrijkste bezwaar om te adresseren: 'kan AI mijn context wel aan?' — benadruk de Knowledge Vault en de menselijke controle (L1-L3).",
+      tags: "sales, prijzen, aanbod, bezwaren, pricing",
+    },
+  ];
+  for (const k of sampleKnowledge) {
+    storage.createKnowledge(k);
   }
 
   console.log("Database seeded successfully.");
@@ -340,6 +363,79 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/budget — huidige token-budgetstatus (governance)
   app.get("/api/budget", (req, res) => {
     res.json(getBudgetStatus());
+  });
+
+  // ─── Orchestraties (CEO / Command Layer) ────────────────────────────────────
+
+  function orchestrationWithSteps(orch: ReturnType<typeof storage.getOrchestration>) {
+    if (!orch) return orch;
+    const steps = storage.getOrchestrationSteps(orch.id);
+    const agents = storage.getAgents();
+    const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
+    return { ...orch, steps: steps.map((s) => ({ ...s, agent: agentMap[s.agentId] || null })) };
+  }
+
+  // GET /api/orchestrator — command-laag metadata (modellen + geaggregeerde stats)
+  app.get("/api/orchestrator", (req, res) => {
+    const all = storage.getOrchestrations(1000);
+    const routes = all.reduce((n, o) => n + storage.getOrchestrationSteps(o.id).length, 0);
+    const reads = all.reduce((n, o) => n + (o.reads ?? 0), 0);
+    res.json({
+      orchestratorModel: ORCHESTRATOR_MODEL,
+      specialistModel: SPECIALIST_MODEL,
+      totalOrchestrations: all.length,
+      routes, // aantal deelopdrachten dat de CEO heeft gerouteerd
+      reads, // aantal kennisbronnen dat is geraadpleegd (Knowledge Vault)
+      knowledgeCount: storage.getKnowledge().length,
+    });
+  });
+
+  // GET /api/orchestrations — recente opdrachten (zonder stappen, licht)
+  app.get("/api/orchestrations", (req, res) => {
+    res.json(storage.getOrchestrations(20));
+  });
+
+  // GET /api/orchestrations/:id — één opdracht mét stappen en agents
+  app.get("/api/orchestrations/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig orchestratie ID" });
+    const orch = storage.getOrchestration(id);
+    if (!orch) return res.status(404).json({ error: "Orchestratie niet gevonden" });
+    res.json(orchestrationWithSteps(orch));
+  });
+
+  // POST /api/orchestrate — geef de CEO één opdracht (rate limited: 5/min per IP)
+  // Start de orchestratie en geeft direct de "planning"-rij terug; de client pollt
+  // GET /api/orchestrations/:id voor de live status per specialist.
+  app.post("/api/orchestrate", guard, rateLimit(5, 60 * 1000), (req, res) => {
+    const result = insertOrchestrationSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+
+    const orchestration = startOrchestration(result.data.command);
+    res.status(202).json(orchestrationWithSteps(storage.getOrchestration(orchestration.id)));
+  });
+
+  // ─── Knowledge Vault ────────────────────────────────────────────────────────
+
+  // GET /api/knowledge
+  app.get("/api/knowledge", (req, res) => {
+    res.json(storage.getKnowledge());
+  });
+
+  // POST /api/knowledge
+  app.post("/api/knowledge", (req, res) => {
+    const result = insertKnowledgeSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+    const entry = storage.createKnowledge(result.data);
+    res.status(201).json(entry);
+  });
+
+  // DELETE /api/knowledge/:id
+  app.delete("/api/knowledge/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig kennis ID" });
+    storage.deleteKnowledge(id);
+    res.status(204).end();
   });
 
   // Start de in-proces loop-scheduler.
