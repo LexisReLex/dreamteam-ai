@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, CheckSquare, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Users, CheckSquare, RefreshCw, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import type { UserProfile } from "@shared/schema";
@@ -20,6 +20,7 @@ export default function Sidebar({ onNavigate }: SidebarProps = {}) {
     { path: "/dashboard", label: t("nav_dashboard"), icon: LayoutDashboard },
     { path: "/agents", label: t("nav_myteam"), icon: Users },
     { path: "/tasks", label: t("nav_tasks"), icon: CheckSquare },
+    { path: "/loops", label: t("nav_loops"), icon: RefreshCw },
     { path: "/settings", label: t("nav_settings"), icon: Settings },
   ];
 
