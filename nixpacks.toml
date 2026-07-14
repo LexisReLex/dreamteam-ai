@@ -1,5 +1,7 @@
+# --include=dev forceert de devDependencies (vite/esbuild/tsx) tijdens de build,
+# ook als de host NODE_ENV=production zet (anders faalt de build: "tsx: not found").
 [phases.build]
-cmds = ["npm ci", "npm run build"]
+cmds = ["npm ci --include=dev", "npm run build"]
 
 [start]
 cmd = "NODE_ENV=production node dist/index.cjs"
