@@ -112,3 +112,56 @@ export const loopRuns = sqliteTable("loop_runs", {
 export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
 export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
 export type LoopRun = typeof loopRuns.$inferSelect;
+
+// ─── Kennisgraaf (graphify) ────────────────────────────────────────────────────
+// Geïnspireerd op Graphify: verander losse tekst (notities, plannen, documenten)
+// in een bevraagbare kennisgraaf in plaats van te grep-en door platte tekst.
+// Splitsing: een agent doet de SEMANTISCHE extractie (nodes + edges), de server
+// doet de DETERMINISTISCHE grafiek-analyse (communities, graad, kortste pad, rapport).
+//
+// Elke edge draagt een vertrouwenslabel, net als in Graphify:
+//   EXTRACTED = expliciet in de bron   INFERRED = redelijk afgeleid
+//   AMBIGUOUS = onzeker, gemarkeerd voor menselijke controle in het rapport.
+export const EDGE_CONFIDENCES = ["EXTRACTED", "INFERRED", "AMBIGUOUS"] as const;
+export type EdgeConfidence = (typeof EDGE_CONFIDENCES)[number];
+
+// Nodes en edges worden als JSON in de graaf-rij bewaard (geen aparte tabellen —
+// een graaf is altijd als geheel nodig, net als loop-state).
+export interface GraphNode {
+  id: string;
+  label: string;
+  community: number; // toegekend door deterministische clustering
+  degree: number; // aantal verbindingen (undirected)
+}
+
+export interface GraphEdge {
+  source: string; // node id
+  target: string; // node id
+  relation: string; // korte relatie, bv. "gebruikt", "leidt tot", "hoort bij"
+  confidence: EdgeConfidence;
+}
+
+export const graphs = sqliteTable("graphs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: integer("agent_id").notNull(),
+  title: text("title").notNull(),
+  source: text("source").notNull(),
+  nodesJson: text("nodes_json").notNull().default("[]"),
+  edgesJson: text("edges_json").notNull().default("[]"),
+  report: text("report").notNull().default(""),
+  nodeCount: integer("node_count").notNull().default(0),
+  edgeCount: integer("edge_count").notNull().default(0),
+  communityCount: integer("community_count").notNull().default(0),
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+// Alleen agentId, title en source komen van de client; de rest wordt door de engine berekend.
+export const insertGraphSchema = createInsertSchema(graphs)
+  .pick({ agentId: true, title: true, source: true })
+  .extend({
+    title: z.string().min(1).max(120),
+    source: z.string().min(1).max(8000),
+  });
+export type InsertGraph = z.infer<typeof insertGraphSchema>;
+export type Graph = typeof graphs.$inferSelect;

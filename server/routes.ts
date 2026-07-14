@@ -1,11 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema, insertGraphSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
+import { buildGraph, parseStored, shortestPath, explainNode } from "./graph";
 import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
@@ -335,6 +336,87 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
     if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
     res.json(storage.getLoopRuns(id, 20));
+  });
+
+  // ─── Kennisgraaf (graphify) ─────────────────────────────────────────────────
+  // Verander tekst in een bevraagbare graaf: agent-extractie + deterministische analyse.
+
+  function graphWithAgent(graph: ReturnType<typeof storage.getGraph>) {
+    if (!graph) return graph;
+    const agent = storage.getAgent(graph.agentId);
+    return { ...graph, agent: agent || null };
+  }
+
+  // GET /api/graphs — lijst (zonder de zware nodes/edges/report-payload)
+  app.get("/api/graphs", (req, res) => {
+    const graphs = storage.getGraphs().map((g) => {
+      const { nodesJson, edgesJson, report, source, ...rest } = g;
+      return graphWithAgent(rest as any);
+    });
+    res.json(graphs);
+  });
+
+  // GET /api/graphs/:id — volledige graaf (nodes, edges, rapport)
+  app.get("/api/graphs/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig graaf ID" });
+    const graph = storage.getGraph(id);
+    if (!graph) return res.status(404).json({ error: "Graaf niet gevonden" });
+    const { nodes, edges } = parseStored(graph);
+    const { nodesJson, edgesJson, ...rest } = graph;
+    res.json({ ...graphWithAgent(rest as any), nodes, edges });
+  });
+
+  // POST /api/graphs — bouw een nieuwe graaf (duur: guard + rate limit 5/min)
+  app.post("/api/graphs", guard, rateLimit(5, 60 * 1000), async (req, res) => {
+    const result = insertGraphSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+    if (!storage.getAgent(result.data.agentId)) return res.status(400).json({ error: "Agent niet gevonden" });
+
+    const built = await buildGraph(result.data.agentId, result.data.title, result.data.source);
+    if (!built.ok) {
+      return res.status(built.code === "BUDGET" ? 429 : 500).json({ error: built.error });
+    }
+    const { nodes, edges } = parseStored(built.graph);
+    const { nodesJson, edgesJson, ...rest } = built.graph;
+    res.status(201).json({ ...graphWithAgent(rest as any), nodes, edges });
+  });
+
+  // DELETE /api/graphs/:id
+  app.delete("/api/graphs/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig graaf ID" });
+    if (!storage.getGraph(id)) return res.status(404).json({ error: "Graaf niet gevonden" });
+    storage.deleteGraph(id);
+    res.status(204).end();
+  });
+
+  // POST /api/graphs/:id/path — kortste pad tussen twee nodes (deterministisch, geen API)
+  app.post("/api/graphs/:id/path", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig graaf ID" });
+    const graph = storage.getGraph(id);
+    if (!graph) return res.status(404).json({ error: "Graaf niet gevonden" });
+    const { from, to } = req.body ?? {};
+    if (typeof from !== "string" || typeof to !== "string") {
+      return res.status(400).json({ error: "Geef 'from' en 'to' node-id's op" });
+    }
+    const { nodes, edges } = parseStored(graph);
+    const path = shortestPath(nodes, edges, from, to);
+    const labelOf = (nid: string) => nodes.find((n) => n.id === nid)?.label ?? nid;
+    res.json({ path, labels: path ? path.map(labelOf) : null });
+  });
+
+  // GET /api/graphs/:id/explain/:nodeId — verbindingen van één node (deterministisch)
+  app.get("/api/graphs/:id/explain/:nodeId", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig graaf ID" });
+    const graph = storage.getGraph(id);
+    if (!graph) return res.status(404).json({ error: "Graaf niet gevonden" });
+    const { nodes, edges } = parseStored(graph);
+    const result = explainNode(nodes, edges, req.params.nodeId);
+    if (!result) return res.status(404).json({ error: "Node niet gevonden" });
+    res.json(result);
   });
 
   // GET /api/budget — huidige token-budgetstatus (governance)
