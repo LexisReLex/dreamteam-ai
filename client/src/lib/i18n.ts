@@ -13,6 +13,7 @@ export const translations = {
   nl: {
     // Nav
     nav_dashboard:    "Dashboard",
+    nav_command:      "Command Center",
     nav_myteam:       "Mijn Team",
     nav_tasks:        "Taken",
     nav_loops:        "Agent Loops",
@@ -145,6 +146,7 @@ export const translations = {
 
   en: {
     nav_dashboard:    "Dashboard",
+    nav_command:      "Command Center",
     nav_myteam:       "My Team",
     nav_tasks:        "Tasks",
     nav_loops:        "Agent Loops",
@@ -268,6 +270,7 @@ export const translations = {
 
   de: {
     nav_dashboard:    "Dashboard",
+    nav_command:      "Kommandozentrale",
     nav_myteam:       "Mein Team",
     nav_tasks:        "Aufgaben",
     nav_loops:        "Agent-Loops",
@@ -391,6 +394,7 @@ export const translations = {
 
   fr: {
     nav_dashboard:    "Tableau de bord",
+    nav_command:      "Centre de commande",
     nav_myteam:       "Mon Équipe",
     nav_tasks:        "Tâches",
     nav_loops:        "Boucles d'agent",
@@ -514,6 +518,7 @@ export const translations = {
 
   es: {
     nav_dashboard:    "Panel",
+    nav_command:      "Centro de mando",
     nav_myteam:       "Mi Equipo",
     nav_tasks:        "Tareas",
     nav_loops:        "Bucles de agente",

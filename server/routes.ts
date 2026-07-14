@@ -1,11 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema, insertOrchestrationSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
+import { runOrchestration, ORCHESTRATOR_MODEL, SPECIALIST_MODEL } from "./orchestrator";
 import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
@@ -340,6 +341,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/budget — huidige token-budgetstatus (governance)
   app.get("/api/budget", (req, res) => {
     res.json(getBudgetStatus());
+  });
+
+  // ─── Orchestraties (CEO / Command Layer) ────────────────────────────────────
+
+  function orchestrationWithSteps(orch: ReturnType<typeof storage.getOrchestration>) {
+    if (!orch) return orch;
+    const steps = storage.getOrchestrationSteps(orch.id);
+    const agents = storage.getAgents();
+    const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
+    return { ...orch, steps: steps.map((s) => ({ ...s, agent: agentMap[s.agentId] || null })) };
+  }
+
+  // GET /api/orchestrator — command-laag metadata (modellen + geaggregeerde stats)
+  app.get("/api/orchestrator", (req, res) => {
+    const all = storage.getOrchestrations(1000);
+    const routes = all.reduce((n, o) => n + storage.getOrchestrationSteps(o.id).length, 0);
+    res.json({
+      orchestratorModel: ORCHESTRATOR_MODEL,
+      specialistModel: SPECIALIST_MODEL,
+      totalOrchestrations: all.length,
+      routes, // aantal deelopdrachten dat de CEO heeft gerouteerd
+    });
+  });
+
+  // GET /api/orchestrations — recente opdrachten (zonder stappen, licht)
+  app.get("/api/orchestrations", (req, res) => {
+    res.json(storage.getOrchestrations(20));
+  });
+
+  // GET /api/orchestrations/:id — één opdracht mét stappen en agents
+  app.get("/api/orchestrations/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig orchestratie ID" });
+    const orch = storage.getOrchestration(id);
+    if (!orch) return res.status(404).json({ error: "Orchestratie niet gevonden" });
+    res.json(orchestrationWithSteps(orch));
+  });
+
+  // POST /api/orchestrate — geef de CEO één opdracht (rate limited: 5/min per IP)
+  app.post("/api/orchestrate", guard, rateLimit(5, 60 * 1000), async (req, res) => {
+    const result = insertOrchestrationSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+
+    const { orchestration } = await runOrchestration(result.data.command);
+    res.json(orchestrationWithSteps(storage.getOrchestration(orchestration.id)));
   });
 
   // Start de in-proces loop-scheduler.
