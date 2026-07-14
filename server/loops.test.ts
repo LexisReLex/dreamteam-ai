@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCadenceMs, computeNextRunAt, parseCheckerResult } from "./loops";
+import { parseCadenceMs, computeNextRunAt, parseCheckerResult, buildMakerSystem, buildStateEntry } from "./loops";
 
 describe("parseCadenceMs", () => {
   it("zet bekende cadans om naar milliseconden", () => {
@@ -56,5 +56,35 @@ describe("parseCheckerResult", () => {
     const r = parseCheckerResult("geen json hier");
     expect(r.verdict).toBe("ESCALATE");
     expect(r.score).toBe(0);
+  });
+});
+
+describe("buildMakerSystem", () => {
+  it("bevat doel, STATE en de zelfverbeterings-instructie", () => {
+    const s = buildMakerSystem("Je bent Nova.", "Doe X", "## eerdere run\nVerifier: wees concreter");
+    expect(s).toContain("Je bent Nova.");
+    expect(s).toContain("Doe X");
+    expect(s).toContain("Verifier: wees concreter");
+    expect(s).toContain("verbeterpunten");
+  });
+
+  it("gebruikt een fallback als de STATE leeg is", () => {
+    const s = buildMakerSystem("Je bent Nova.", "Doe X", null);
+    expect(s).toContain("nog geen historie");
+  });
+});
+
+describe("buildStateEntry", () => {
+  it("zet de verifier-critique in de state zodat de loop ervan leert", () => {
+    const e = buildStateEntry("2026-07-14T09:30:00.000Z", "APPROVE", 82, "3 ideeën...", "prima, maar meer cijfers");
+    expect(e).toContain("2026-07-14 09:30 — APPROVE (score 82)");
+    expect(e).toContain("3 ideeën...");
+    expect(e).toContain("Verifier: prima, maar meer cijfers");
+  });
+
+  it("toont '(geen output)' zonder maker-output en laat de verifier-regel weg zonder critique", () => {
+    const e = buildStateEntry("2026-07-14T09:30:00.000Z", "ERROR", 0, "", "");
+    expect(e).toContain("(geen output)");
+    expect(e).not.toContain("Verifier:");
   });
 });

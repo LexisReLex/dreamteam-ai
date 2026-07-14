@@ -86,6 +86,41 @@ export async function runLoop(loop: Loop): Promise<LoopRun | null> {
   }
 }
 
+// Bouwt de systeemprompt voor de maker. De STATE draagt de verifier-critiques
+// van eerdere runs; de maker wordt geïnstrueerd die te verwerken (zelfverbetering).
+export function buildMakerSystem(systemPrompt: string, objective: string, state: string | null): string {
+  const history = state?.trim() || "(nog geen historie — dit is de eerste run)";
+  return `${systemPrompt}
+
+Je draait nu in een AUTONOME LOOP (loop engineering), niet in een chat. Doel van deze loop:
+"${objective}"
+
+Bekende status uit eerdere runs (STATE — jouw geheugen-ruggengraat):
+${history}
+
+Instructies:
+- Voer één iteratie van dit doel uit en lever een beknopt, concreet resultaat in het Nederlands.
+- Bouw voort op de STATE; herhaal niet wat er al staat, voeg nieuwe waarde toe.
+- Let op de "Verifier:"-verbeterpunten uit eerdere runs in de STATE en verwerk die om je resultaat te verbeteren.
+- Alleen signaal en bruikbare output — geen verzinsels, geen opvulling.`;
+}
+
+// Bouwt één STATE-regel voor een afgeronde run. Bevat altijd de verifier-critique
+// zodat de leerpunten in het geheugen blijven en de volgende maker ze meekrijgt.
+export function buildStateEntry(
+  runAt: string,
+  verdict: string,
+  score: number,
+  makerOutput: string,
+  critique: string,
+): string {
+  const stamp = runAt.replace("T", " ").slice(0, 16);
+  const output = (makerOutput || "").trim().slice(0, 600) || "(geen output)";
+  const crit = (critique || "").trim();
+  const critLine = crit ? `\nVerifier: ${crit}` : "";
+  return `## ${stamp} — ${verdict} (score ${score})\n${output}${critLine}\n`;
+}
+
 async function executeLoop(loop: Loop): Promise<LoopRun> {
   const runAt = new Date().toISOString();
   const agent = storage.getAgent(loop.agentId);
@@ -108,18 +143,9 @@ async function executeLoop(loop: Loop): Promise<LoopRun> {
 
   try {
     // ── MAKER: de agent voert het doel uit, met de vorige STATE als geheugen ──
-    const makerSystem = `${systemPrompt}
-
-Je draait nu in een AUTONOME LOOP (loop engineering), niet in een chat. Doel van deze loop:
-"${loop.objective}"
-
-Bekende status uit eerdere runs (STATE — jouw geheugen-ruggengraat):
-${loop.state?.trim() || "(nog geen historie — dit is de eerste run)"}
-
-Instructies:
-- Voer één iteratie van dit doel uit en lever een beknopt, concreet resultaat in het Nederlands.
-- Bouw voort op de STATE; herhaal niet wat er al staat, voeg nieuwe waarde toe.
-- Alleen signaal en bruikbare output — geen verzinsels, geen opvulling.`;
+    // De STATE bevat de verifier-critiques van eerdere runs; de maker wordt
+    // geïnstrueerd die te verwerken (post-run zelfverbetering).
+    const makerSystem = buildMakerSystem(systemPrompt, loop.objective, loop.state);
 
     const makerResp = await anthropicClient.messages.create({
       model: MODEL,
@@ -193,11 +219,7 @@ function finishRun(
   });
 
   // State-ruggengraat bijwerken: nieuwste run vooraan, gecapt op lengte.
-  const stamp = runAt.replace("T", " ").slice(0, 16);
-  const summary = result.makerOutput
-    ? result.makerOutput.trim().slice(0, 600)
-    : result.critique;
-  const entry = `## ${stamp} — ${result.verdict} (score ${result.score})\n${summary}\n`;
+  const entry = buildStateEntry(runAt, result.verdict, result.score, result.makerOutput, result.critique);
   const newState = trimState(`${entry}\n${loop.state ?? ""}`.trim());
 
   storage.updateLoop(loop.id, {
