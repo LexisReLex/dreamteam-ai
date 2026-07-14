@@ -12,7 +12,15 @@ Zet deze in je hostingomgeving (bv. Railway → Variables). Zie ook `.env.exampl
 | `ANTHROPIC_API_KEY` | ✅ | `sk-ant-...` | API-sleutel voor de agents. `CUSTOM_CRED_API_ANTHROPIC_COM_TOKEN` werkt ook. |
 | `DAILY_TOKEN_LIMIT` | — | `50000` | Gedeeld dagelijks tokenplafond (chat + loops). Begin laag, verhoog na kostenmeting. |
 | `DB_PATH` | ⚠️ prod | `/data/dreamteam.db` | Pad naar SQLite. **Zet dit op een persistent volume** (zie §2), anders is data vluchtig. |
+| `ALLOWED_ORIGINS` | — | `https://jouwdomein.nl` | Komma-gescheiden origin-allowlist voor de dure endpoints (defense-in-depth). Leeg = alles toestaan. |
+| `API_ACCESS_TOKEN` | — | leeg | Optionele API-token voor **afgeschermde/interne** deploys (geen publieke SPA). Vereist dan header `x-api-token`. |
 | `PORT` / `NODE_ENV` | — | zet host zelf | Railway vult deze automatisch. |
+
+> **Let op — dit is geen gebruikers-auth.** Een publieke browser-SPA kan geen
+> geheim bewaren, dus `API_ACCESS_TOKEN` is alleen zinvol voor interne/proxied
+> deploys. Voor echte publieke multi-user beveiliging zijn gebruikersaccounts
+> nodig (aparte mijlpaal). `ALLOWED_ORIGINS` + de rate limits + het token-budget
+> vormen samen de defense-in-depth voor een publieke demo.
 
 ## 2. ⚠️ Persistente opslag (belangrijkste stap)
 
