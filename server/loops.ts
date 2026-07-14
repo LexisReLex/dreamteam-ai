@@ -28,7 +28,7 @@ export function computeNextRunAt(cadence: string, from = Date.now()): string | n
 type Verdict = "APPROVE" | "REJECT" | "ESCALATE";
 interface CheckerResult { verdict: Verdict; score: number; critique: string; }
 
-function parseCheckerResult(raw: string): CheckerResult {
+export function parseCheckerResult(raw: string): CheckerResult {
   // Pak het eerste JSON-object uit de tekst (het model kan er proza omheen zetten).
   const match = raw.match(/\{[\s\S]*\}/);
   let verdict: Verdict = "ESCALATE";
