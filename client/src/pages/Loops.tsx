@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Loader2, Play, Trash2, ChevronDown, ChevronUp, RefreshCw,
-  CheckCircle2, XCircle, AlertTriangle, Clock, Gauge, Zap,
+  CheckCircle2, XCircle, AlertTriangle, Clock, Gauge, Zap, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -27,6 +27,23 @@ const CADENCE_OPTIONS = [
   { value: "2h", label: "Elke 2 uur" },
   { value: "6h", label: "Elke 6 uur" },
   { value: "1d", label: "Dagelijks" },
+];
+
+// Snelstart-templates — kant-en-klare loops per agent (pattern picker).
+// De agent wordt op naam gematcht tegen de geladen agents, dus id-drift is geen probleem.
+const TEMPLATES = [
+  { agentName: "Nova", name: "Wekelijkse marketing-ideeën", cadence: "1d",
+    objective: "Genereer 3 concrete, uitvoerbare marketing-ideeën voor deze week, afgestemd op Nederlandse ondernemers. Bouw voort op wat al in de STATE staat en herhaal niets." },
+  { agentName: "Mira", name: "Content-kalender", cadence: "1d",
+    objective: "Stel een korte contentkalender voor de komende 5 dagen voor: per dag een onderwerp, kanaal en pakkende haak. Geen herhaling van eerdere runs." },
+  { agentName: "Luna", name: "Social posts van de week", cadence: "1d",
+    objective: "Schrijf 3 kant-en-klare social-media-posts inclusief hashtags, rond actuele en relevante invalshoeken." },
+  { agentName: "Kai", name: "SEO quick wins", cadence: "6h",
+    objective: "Signaleer 3 concrete SEO-kansen of quick wins (keywords, technische checks, content-gaten) die deze week op te pakken zijn." },
+  { agentName: "Orion", name: "Strategische signalen", cadence: "6h",
+    objective: "Vat de belangrijkste strategische aandachtspunten en kansen samen die de ondernemer deze periode moet overwegen." },
+  { agentName: "Finn", name: "Financiële check", cadence: "1d",
+    objective: "Benoem de belangrijkste financiële aandachtspunten en KPI's om deze week in de gaten te houden, met een concreet cijfermatig voorbeeld." },
 ];
 
 const LEVEL_INFO: Record<string, { label: string; desc: string; color: string }> = {
@@ -126,6 +143,19 @@ export default function Loops() {
     mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/loops/${id}`); },
     onSuccess: () => invalidate(),
   });
+
+  const applyTemplate = (tpl: (typeof TEMPLATES)[number]) => {
+    const agent = agents?.find((a) => a.name.toLowerCase() === tpl.agentName.toLowerCase());
+    setForm({
+      agentId: agent ? String(agent.id) : "",
+      name: tpl.name,
+      objective: tpl.objective,
+      cadence: tpl.cadence,
+      level: "L1",
+      enabled: false,
+    });
+    setOpen(true);
+  };
 
   const budgetPct = budget ? Math.min(100, Math.round((budget.used / budget.limit) * 100)) : 0;
 
@@ -238,6 +268,47 @@ export default function Loops() {
                 <div className={cn("h-full rounded-full transition-all", budgetPct >= 90 ? "bg-red-400" : budgetPct >= 70 ? "bg-yellow-400" : "bg-primary")}
                   style={{ width: `${budgetPct}%` }} />
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Snelstart-templates (pattern picker) */}
+        {agents && agents.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-2.5">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Snelstart-templates</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {TEMPLATES.map((tpl) => {
+                const agent = agents.find((a) => a.name.toLowerCase() === tpl.agentName.toLowerCase());
+                const Icon = agent ? getLucideIcon(agent.avatarIcon) : null;
+                const color = agent?.avatarColor ?? "#3b82f6";
+                const cadenceLabel = CADENCE_OPTIONS.find((c) => c.value === tpl.cadence)?.label ?? tpl.cadence;
+                return (
+                  <button
+                    key={tpl.name}
+                    onClick={() => applyTemplate(tpl)}
+                    className="text-left glass-card rounded-xl p-3 hover:border-[rgba(59,130,246,0.35)] transition-all group"
+                    data-testid={`template-${tpl.agentName.toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
+                        style={{ background: `${color}20`, border: `1px solid ${color}40` }}>
+                        {Icon && <Icon className="w-3 h-3" style={{ color }} />}
+                      </div>
+                      <span className="text-sm font-medium flex-1 min-w-0 truncate">{tpl.name}</span>
+                      <span className="inline-flex items-center gap-1 text-[9px] px-1 py-0.5 rounded font-medium text-blue-300 bg-blue-400/10 border border-blue-400/20 flex-shrink-0">
+                        <Clock className="w-2.5 h-2.5" /> {cadenceLabel}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">{tpl.objective}</p>
+                    <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-primary/80 group-hover:text-primary">
+                      <Plus className="w-2.5 h-2.5" /> {tpl.agentName} · gebruik template
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
