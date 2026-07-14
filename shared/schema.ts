@@ -127,6 +127,7 @@ export const orchestrations = sqliteTable("orchestrations", {
   debrief: text("debrief").notNull().default(""), // eindsamenvatting voor de operator
   status: text("status", { enum: ORCHESTRATION_STATUS }).notNull().default("planning"),
   currentAgentId: integer("current_agent_id"), // welke specialist nú draait (live status), null = geen
+  reads: integer("reads").notNull().default(0), // aantal kennisbronnen uit de Vault dat is geraadpleegd
   tokensUsed: integer("tokens_used").notNull().default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
@@ -154,3 +155,25 @@ export const orchestrationSteps = sqliteTable("orchestration_steps", {
 export const insertOrchestrationStepSchema = createInsertSchema(orchestrationSteps).omit({ id: true, createdAt: true });
 export type InsertOrchestrationStep = z.infer<typeof insertOrchestrationStepSchema>;
 export type OrchestrationStep = typeof orchestrationSteps.$inferSelect;
+
+// ─── Knowledge Vault (RAG / geheugen-laag) ────────────────────────────────────
+// Duurzame kennisbronnen die de orchestrator en specialisten kunnen raadplegen
+// (de "READS" / Knowledge Vault uit de agentic-OS demo). Retrieval is
+// keyword-gebaseerd bovenop SQLite — geen externe embeddings-provider nodig.
+export const knowledge = sqliteTable("knowledge", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  tags: text("tags").notNull().default(""), // komma-gescheiden labels
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertKnowledgeSchema = createInsertSchema(knowledge)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    title: z.string().min(1).max(120),
+    content: z.string().min(1).max(8000),
+    tags: z.string().max(200).optional(),
+  });
+export type InsertKnowledge = z.infer<typeof insertKnowledgeSchema>;
+export type Knowledge = typeof knowledge.$inferSelect;

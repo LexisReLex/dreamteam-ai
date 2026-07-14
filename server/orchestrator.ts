@@ -2,6 +2,7 @@ import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget } from "./ai";
 import { getAgentSystemPrompt } from "./prompts";
 import { storage } from "./storage";
+import { buildKnowledgeContext } from "./knowledge";
 import type { Agent, Orchestration } from "@shared/schema";
 
 // ─── Modellen per laag (orchestrator-worker) ──────────────────────────────────
@@ -35,16 +36,17 @@ function extractText(resp: Message): string {
 }
 
 // ─── Planner-prompt: de orchestrator kiest wélke specialist wát doet ───────────
-export function buildPlannerSystem(agents: Agent[]): string {
+export function buildPlannerSystem(agents: Agent[], knowledgeContext = ""): string {
   const roster = agents
     .map((a) => `- id ${a.id}: ${a.name} — ${a.role} (${a.specialty})`)
     .join("\n");
+  const knowledgeBlock = knowledgeContext ? `\n\n${knowledgeContext}\n` : "";
   return `Je bent de CEO/Orchestrator (de command-laag) van een team AI-specialisten voor Nederlandse ondernemers.
 Je voert het werk NIET zelf uit. Je taak is routeren: je ontleedt de opdracht van de operator in
 concrete deelopdrachten en wijst elke deelopdracht toe aan de best passende specialist.
 
 Beschikbare specialisten (gebruik exact deze id's):
-${roster}
+${roster}${knowledgeBlock}
 
 Regels:
 - Kies alleen specialisten die echt bijdragen. Liever 2 scherpe deelopdrachten dan 5 vage.
@@ -86,14 +88,15 @@ export function parsePlan(raw: string, validAgentIds: number[], maxSteps = MAX_S
 }
 
 // ─── Specialist-prompt: één deelopdracht binnen de teamcontext ─────────────────
-export function buildSpecialistUser(command: string, task: string): string {
+export function buildSpecialistUser(command: string, task: string, knowledgeContext = ""): string {
+  const knowledgeBlock = knowledgeContext ? `\n\n${knowledgeContext}\n` : "";
   return `De CEO/Orchestrator heeft jou als specialist ingeschakeld binnen een teamopdracht.
 
 Volledige opdracht van de operator:
 "${command}"
 
 Jouw specifieke deelopdracht:
-"${task}"
+"${task}"${knowledgeBlock}
 
 Lever een beknopt, concreet en direct bruikbaar resultaat voor jouw deel. Geen inleiding of samenvatting
 van de hele opdracht — alleen jouw bijdrage. Blijf binnen je eigen vakgebied.`;
@@ -150,11 +153,16 @@ async function executeOrchestration(orchId: number, command: string): Promise<vo
     const agents = storage.getAgents();
     if (agents.length === 0) throw new Error("Geen agents beschikbaar om werk aan te routeren.");
 
-    // ── PLAN: de orchestrator routeert het werk ──
+    // ── READS: relevante kennis uit de Vault ophalen (RAG-laag) ──
+    const knowledge = storage.searchKnowledge(command, 4);
+    const knowledgeContext = buildKnowledgeContext(knowledge);
+    if (knowledge.length > 0) storage.updateOrchestration(orchId, { reads: knowledge.length });
+
+    // ── PLAN: de orchestrator routeert het werk (kennis-bewust) ──
     const plannerResp = await anthropicClient.messages.create({
       model: ORCHESTRATOR_MODEL,
       max_tokens: 700,
-      system: buildPlannerSystem(agents),
+      system: buildPlannerSystem(agents, knowledgeContext),
       messages: [{ role: "user", content: command }],
     });
     tokensUsed += tokensOf(plannerResp);
@@ -189,7 +197,7 @@ async function executeOrchestration(orchId: number, command: string): Promise<vo
           model: SPECIALIST_MODEL,
           max_tokens: 900,
           system: getAgentSystemPrompt(step.agentId),
-          messages: [{ role: "user", content: buildSpecialistUser(command, step.task) }],
+          messages: [{ role: "user", content: buildSpecialistUser(command, step.task, knowledgeContext) }],
         });
         stepTokens = tokensOf(resp);
         output = extractText(resp) || output;

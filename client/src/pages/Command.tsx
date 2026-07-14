@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Crown, Send, Loader2, Network, Route as RouteIcon, Cpu, CheckCircle2,
-  AlertTriangle, ChevronDown, ChevronUp, Sparkles, History, ArrowRight,
+  AlertTriangle, ChevronDown, ChevronUp, Sparkles, History, ArrowRight, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -19,6 +19,8 @@ interface OrchestratorMeta {
   specialistModel: string;
   totalOrchestrations: number;
   routes: number;
+  reads: number;
+  knowledgeCount: number;
 }
 
 // Snelstart-opdrachten — één command die de CEO over meerdere specialisten verdeelt.
@@ -179,10 +181,14 @@ export default function Command() {
                 </div>
               </div>
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-2 mt-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
                 <div className="rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-2.5 py-1.5">
                   <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-muted-foreground"><RouteIcon className="w-2.5 h-2.5" /> Routes</div>
                   <div className="text-sm font-bold" data-testid="stat-routes">{meta?.routes ?? 0}</div>
+                </div>
+                <div className="rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-2.5 py-1.5">
+                  <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-muted-foreground"><BookOpen className="w-2.5 h-2.5" /> Reads</div>
+                  <div className="text-sm font-bold" data-testid="stat-reads">{meta?.reads ?? 0}</div>
                 </div>
                 <div className="rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-2.5 py-1.5">
                   <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-muted-foreground"><Sparkles className="w-2.5 h-2.5" /> Opdrachten</div>

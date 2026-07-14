@@ -76,7 +76,29 @@ Zet `ORCHESTRATOR_MODEL` naar bijvoorbeeld een groter model om de command-laag s
   specialisten als kaarten met live status), de commandobalk, en de debrief met de losse bijdragen.
 - `server/orchestrator.test.ts` — unit tests voor de pure helpers.
 
-## 6. Verhouding tot Agent Loops
+## 6. Knowledge Vault (READS / RAG-laag)
+
+De **Knowledge Vault** is de geheugen-/kennislaag onder de command-laag — de "READS" uit de demo.
+Het zijn duurzame kennisbronnen (bedrijfsprofiel, merkstem, aanbod, feiten) die de orchestrator en
+specialisten automatisch meelezen bij elke opdracht.
+
+- **Opslag**: tabel `knowledge` (titel, inhoud, tags). CRUD via `/api/knowledge`.
+- **Retrieval**: keyword-gebaseerd bovenop SQLite — géén externe embeddings-provider nodig.
+  `server/knowledge.ts` bevat pure, testbare helpers: `tokenize`, `scoreEntry`, `rankKnowledge`
+  (titel ×3, tags ×2, inhoud ×1) en `buildKnowledgeContext`. Later te vervangen door echte embeddings.
+- **Injectie**: vóór het plannen haalt de orchestrator de top-K (4) relevante bronnen op en injecteert
+  die zowel in de planner- als de specialist-prompts, zodat routing én uitvoering kennis-bewust zijn.
+- **READS-stat**: elke orchestratie legt vast hoeveel bronnen zijn geraadpleegd (`orchestrations.reads`);
+  de CEO-kaart toont het totaal, net als de "READS" in de screenshot.
+
+```
+Opdracht → [READS: top-K uit de Vault] → Plan → Dispatch (met kenniscontext) → Synthese
+```
+
+De UI (`client/src/pages/Vault.tsx`) laat je kennisbronnen toevoegen, bekijken en verwijderen.
+Bij het seeden staan er drie voorbeeldbronnen in (bedrijfsprofiel, tone of voice, aanbod & prijzen).
+
+## 7. Verhouding tot Agent Loops
 
 | | Chat | Agent Loop | **Orchestrator** |
 |--|------|-----------|------------------|

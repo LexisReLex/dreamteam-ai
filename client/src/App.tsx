@@ -7,6 +7,7 @@ import { LanguageProvider } from "@/lib/LanguageContext";
 import Sidebar from "@/components/Sidebar";
 import Dashboard from "@/pages/Dashboard";
 import Command from "@/pages/Command";
+import Vault from "@/pages/Vault";
 import Agents from "@/pages/Agents";
 import AgentDetail from "@/pages/AgentDetail";
 import Tasks from "@/pages/Tasks";
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Switch>
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/command" component={Command} />
+          <Route path="/vault" component={Vault} />
           <Route path="/agents" component={Agents} />
           <Route path="/agent/:id" component={AgentDetail} />
           <Route path="/tasks" component={Tasks} />
