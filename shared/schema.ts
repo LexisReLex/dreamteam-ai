@@ -112,3 +112,55 @@ export const loopRuns = sqliteTable("loop_runs", {
 export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
 export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
 export type LoopRun = typeof loopRuns.$inferSelect;
+
+// ─── Agent Memory (gelaagd geheugen — TencentDB Agent Memory) ──────────────────
+// Een semantische piramide bovenop de reactieve chat. De ruwe dialoog (L0) leeft
+// al in `messages`. Daaruit destilleren we atomaire feiten (L1) en synthetiseren
+// we een persona-profiel (L3). "Onderste lagen bewaren bewijs; bovenste lagen
+// bewaren structuur." Zo onthoudt een agent voorkeuren en context tussen
+// gesprekken door, zonder de volledige historie mee te sturen.
+export const MEMORY_LAYERS = ["L1", "L3"] as const; // L0 = messages, L1 = atom, L3 = persona
+export const MEMORY_KINDS = ["fact", "preference", "goal", "context"] as const;
+
+// L1 — atomaire herinneringen (feiten/voorkeuren) gedestilleerd uit de dialoog.
+export const agentMemories = sqliteTable("agent_memories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: integer("agent_id").notNull(),
+  layer: text("layer", { enum: MEMORY_LAYERS }).notNull().default("L1"),
+  kind: text("kind", { enum: MEMORY_KINDS }).notNull().default("fact"),
+  content: text("content").notNull(),
+  // Trefwoorden (spatie-gescheiden) voeden de keyword-leg van de hybride recall.
+  keywords: text("keywords").notNull().default(""),
+  // Salience 0–100: hoe belangrijk/duurzaam is dit feit? Weegt mee in de recall.
+  salience: integer("salience").notNull().default(50),
+  // Traceerbaarheid: het hoogste message-id dat in deze extractie is verwerkt.
+  sourceMessageId: integer("source_message_id"),
+  useCount: integer("use_count").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  lastUsedAt: text("last_used_at"),
+});
+
+export const insertMemorySchema = createInsertSchema(agentMemories)
+  .omit({ id: true, useCount: true, createdAt: true, lastUsedAt: true })
+  .extend({
+    content: z.string().min(1).max(500),
+    keywords: z.string().max(300).optional(),
+    salience: z.number().int().min(0).max(100).optional(),
+  });
+export type InsertMemory = z.infer<typeof insertMemorySchema>;
+export type AgentMemory = typeof agentMemories.$inferSelect;
+
+// L3 — het gesynthetiseerde persona-profiel per agent (één rij per agent).
+export const agentPersonas = sqliteTable("agent_personas", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: integer("agent_id").notNull(),
+  profile: text("profile").notNull().default(""),
+  // Aantal herinneringen dat bestond toen dit profiel gesynthetiseerd werd —
+  // triggert een herberekening zodra er genoeg nieuwe herinneringen bij zijn.
+  memoryCount: integer("memory_count").notNull().default(0),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertPersonaSchema = createInsertSchema(agentPersonas).omit({ id: true, updatedAt: true });
+export type InsertPersona = z.infer<typeof insertPersonaSchema>;
+export type AgentPersona = typeof agentPersonas.$inferSelect;
