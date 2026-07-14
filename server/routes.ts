@@ -6,6 +6,7 @@ import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
+import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -109,6 +110,10 @@ const profileUpdateSchema = insertUserProfileSchema.pick({
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   seedDatabase();
 
+  // Toegangsbescherming voor de dure (betaalde) endpoints. Standaard permissief;
+  // wordt streng zodra ALLOWED_ORIGINS en/of API_ACCESS_TOKEN gezet zijn.
+  const guard = accessGuard();
+
   // GET /api/agents
   app.get("/api/agents", (req, res) => {
     const agents = storage.getAgents();
@@ -162,7 +167,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // POST /api/messages — rate limited: 20 per minute per IP
-  app.post("/api/messages", rateLimit(20, 60 * 1000), async (req, res) => {
+  app.post("/api/messages", guard, rateLimit(20, 60 * 1000), async (req, res) => {
     const result = validatedMessageSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.flatten() });
 
@@ -313,7 +318,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // POST /api/loops/:id/run — draai nu (rate limited: 10/min per IP)
-  app.post("/api/loops/:id/run", rateLimit(10, 60 * 1000), async (req, res) => {
+  app.post("/api/loops/:id/run", guard, rateLimit(10, 60 * 1000), async (req, res) => {
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
     const loop = storage.getLoop(id);
