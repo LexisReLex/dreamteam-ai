@@ -112,3 +112,34 @@ export const loopRuns = sqliteTable("loop_runs", {
 export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
 export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
 export type LoopRun = typeof loopRuns.$inferSelect;
+
+// ─── Notifications (gotify-geïnspireerd) ──────────────────────────────────────
+// Gotify-model vertaald naar DreamTeam:
+//   application (bron van berichten) → `source` (bv. "loop:Nova", "system")
+//   message (titel/tekst/priority)   → deze tabel
+//   client (realtime ontvanger)      → de browser via WebSocket /api/stream
+// Priority volgt de gotify-schaal 0–10 (zie server/notifications.ts voor de buckets).
+export const notifications = sqliteTable("notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull().default("system"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  priority: integer("priority").notNull().default(5),
+  read: integer("read", { mode: "boolean" }).notNull().default(false),
+  // gotify "extras" (client::notification click) → in-app route om heen te springen.
+  link: text("link"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+// Ingest-schema voor de gotify-achtige POST /api/message endpoint.
+export const insertNotificationSchema = createInsertSchema(notifications)
+  .omit({ id: true, read: true, createdAt: true })
+  .extend({
+    title: z.string().min(1).max(200),
+    message: z.string().min(1).max(2000),
+    priority: z.number().int().min(0).max(10).optional(),
+    source: z.string().min(1).max(80).optional(),
+    link: z.string().max(500).nullish(),
+  });
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
