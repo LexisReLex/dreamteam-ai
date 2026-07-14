@@ -4,7 +4,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
+import { desc } from "drizzle-orm";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, Notification, InsertNotification } from "@shared/schema";
 
 // Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
 // persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
@@ -91,6 +92,17 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL DEFAULT 'system',
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 5,
+    read INTEGER NOT NULL DEFAULT 0,
+    link TEXT,
+    created_at TEXT NOT NULL
+  );
+
 `);
 
 // Safe migration: add language column if not exists
@@ -129,6 +141,15 @@ export interface IStorage {
   // Loop runs
   getLoopRuns(loopId: number, limit?: number): LoopRun[];
   createLoopRun(data: InsertLoopRun): LoopRun;
+
+  // Notifications (gotify-geïnspireerd)
+  getNotifications(limit?: number): Notification[];
+  getUnreadCount(): number;
+  createNotification(data: InsertNotification): Notification;
+  markNotificationRead(id: number): Notification | undefined;
+  markAllNotificationsRead(): number;
+  deleteNotification(id: number): void;
+  clearNotifications(): void;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -250,6 +271,59 @@ export class Storage implements IStorage {
   createLoopRun(data: InsertLoopRun): LoopRun {
     const now = new Date().toISOString();
     return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Notifications ────────────────────────────────────────────────────────────
+  getNotifications(limit = 50): Notification[] {
+    return db
+      .select()
+      .from(schema.notifications)
+      .orderBy(desc(schema.notifications.id))
+      .limit(limit)
+      .all();
+  }
+
+  getUnreadCount(): number {
+    return db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.read, false))
+      .all().length;
+  }
+
+  createNotification(data: InsertNotification): Notification {
+    const now = new Date().toISOString();
+    return db
+      .insert(schema.notifications)
+      .values({
+        source: data.source ?? "system",
+        title: data.title,
+        message: data.message,
+        priority: data.priority ?? 5,
+        link: data.link ?? null,
+        createdAt: now,
+      })
+      .returning()
+      .get();
+  }
+
+  markNotificationRead(id: number): Notification | undefined {
+    db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.id, id)).run();
+    return db.select().from(schema.notifications).where(eq(schema.notifications.id, id)).get();
+  }
+
+  markAllNotificationsRead(): number {
+    const unread = this.getUnreadCount();
+    db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.read, false)).run();
+    return unread;
+  }
+
+  deleteNotification(id: number): void {
+    db.delete(schema.notifications).where(eq(schema.notifications.id, id)).run();
+  }
+
+  clearNotifications(): void {
+    db.delete(schema.notifications).run();
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {

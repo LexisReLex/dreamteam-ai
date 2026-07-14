@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, CheckSquare, RefreshCw, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Users, CheckSquare, RefreshCw, Bell, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import type { UserProfile } from "@shared/schema";
 import { useLanguage } from "@/lib/LanguageContext";
+import { useNotifications } from "@/hooks/useNotifications";
 import LanguageSwitcher from "./LanguageSwitcher";
 
 interface SidebarProps {
@@ -16,11 +17,15 @@ export default function Sidebar({ onNavigate }: SidebarProps = {}) {
   const [location] = useLocation();
   const { t } = useLanguage();
 
+  const { data: notif } = useNotifications();
+  const unread = notif?.unread ?? 0;
+
   const navItems = [
     { path: "/dashboard", label: t("nav_dashboard"), icon: LayoutDashboard },
     { path: "/agents", label: t("nav_myteam"), icon: Users },
     { path: "/tasks", label: t("nav_tasks"), icon: CheckSquare },
     { path: "/loops", label: t("nav_loops"), icon: RefreshCw },
+    { path: "/notifications", label: t("nav_notifications"), icon: Bell, badge: unread },
     { path: "/settings", label: t("nav_settings"), icon: Settings },
   ];
 
@@ -89,8 +94,9 @@ export default function Sidebar({ onNavigate }: SidebarProps = {}) {
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navItems.map(({ path, label, icon: Icon }) => {
+        {navItems.map(({ path, label, icon: Icon, badge }) => {
           const isActive = location.startsWith(path);
+          const showBadge = typeof badge === "number" && badge > 0;
           return (
             <Link
               key={path}
@@ -108,8 +114,20 @@ export default function Sidebar({ onNavigate }: SidebarProps = {}) {
               {isActive && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-full" />
               )}
-              <Icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-primary" : "group-hover:text-primary/70")} />
-              {!collapsed && <span className="text-sm font-medium">{label}</span>}
+              <span className="relative flex-shrink-0">
+                <Icon className={cn("w-4 h-4", isActive ? "text-primary" : "group-hover:text-primary/70")} />
+                {showBadge && collapsed && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-[9px] font-bold text-white flex items-center justify-center">
+                    {badge > 9 ? "9+" : badge}
+                  </span>
+                )}
+              </span>
+              {!collapsed && <span className="text-sm font-medium flex-1">{label}</span>}
+              {!collapsed && showBadge && (
+                <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary text-[10px] font-bold text-white flex items-center justify-center" data-testid="nav-notifications-badge">
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </Link>
           );
         })}

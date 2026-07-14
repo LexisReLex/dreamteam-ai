@@ -10,6 +10,7 @@ import Agents from "@/pages/Agents";
 import AgentDetail from "@/pages/AgentDetail";
 import Tasks from "@/pages/Tasks";
 import Loops from "@/pages/Loops";
+import Notifications from "@/pages/Notifications";
 import Settings from "@/pages/Settings";
 import Landing from "@/pages/Landing";
 import Pricing from "@/pages/Pricing";
@@ -17,6 +18,13 @@ import Legal from "@/pages/Legal";
 import NotFound from "@/pages/not-found";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { useNotificationStream } from "@/hooks/useNotifications";
+
+// Houdt de realtime meldingen-WebSocket open zolang de app-shell gemount is.
+function NotificationStreamMount() {
+  useNotificationStream();
+  return null;
+}
 
 function AppRoutes() {
   const [location] = useLocation();
@@ -40,6 +48,7 @@ function AppRoutes() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <NotificationStreamMount />
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
@@ -81,6 +90,7 @@ function AppRoutes() {
           <Route path="/agent/:id" component={AgentDetail} />
           <Route path="/tasks" component={Tasks} />
           <Route path="/loops" component={Loops} />
+          <Route path="/notifications" component={Notifications} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>

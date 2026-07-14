@@ -2,6 +2,7 @@ import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget } from "./ai";
 import { getAgentSystemPrompt } from "./prompts";
 import { storage } from "./storage";
+import { notifyLoopRun } from "./notifications";
 import type { Loop, LoopRun } from "@shared/schema";
 
 // Loops draaien op het snelle, goedkope model — cadans-gedreven, kostenbewust.
@@ -217,6 +218,16 @@ function finishRun(
     critique: result.critique,
     tokensUsed: result.tokensUsed,
   });
+
+  // Meld de run (gotify-laag). Zo bereikt de "Human gate" van loop engineering
+  // ook echt een mens: een ESCALATE/ERROR komt als high-priority melding binnen.
+  try {
+    const agentName = storage.getAgent(loop.agentId)?.name ?? "Agent";
+    notifyLoopRun(loop, run, agentName);
+  } catch (err: any) {
+    // Een melding mag nooit een loop-run laten falen — best-effort.
+    console.error(`[loop ${loop.id}] melding mislukt:`, err?.message || err);
+  }
 
   // State-ruggengraat bijwerken: nieuwste run vooraan, gecapt op lengte.
   const entry = buildStateEntry(runAt, result.verdict, result.score, result.makerOutput, result.critique);

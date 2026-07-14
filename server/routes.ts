@@ -1,12 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema, insertNotificationSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
+import { publish, setupNotificationStream, notifyTokenGuard } from "./notifications";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -341,6 +342,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/budget", (req, res) => {
     res.json(getBudgetStatus());
   });
+
+  // ─── Notifications (gotify-geïnspireerd) ────────────────────────────────────
+  // GET /api/notifications — lijst + ongelezen-teller (gotify: GET /message)
+  app.get("/api/notifications", (req, res) => {
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "50")) || 50, 1), 200);
+    res.json({
+      notifications: storage.getNotifications(limit),
+      unread: storage.getUnreadCount(),
+    });
+  });
+
+  // POST /api/message — gotify-achtige ingest: externe bron stuurt een melding.
+  // Beschermd met de app-token gate (NOTIFY_TOKEN) én de origin/API-guard.
+  app.post("/api/message", guard, notifyTokenGuard, rateLimit(60, 60 * 1000), (req, res) => {
+    const result = insertNotificationSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: "Ongeldige melding", details: result.error.flatten() });
+    }
+    const notification = publish(result.data);
+    res.status(201).json(notification);
+  });
+
+  // PATCH /api/notifications/:id/read — markeer als gelezen
+  app.patch("/api/notifications/:id/read", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig melding-ID" });
+    const updated = storage.markNotificationRead(id);
+    if (!updated) return res.status(404).json({ error: "Melding niet gevonden" });
+    res.json(updated);
+  });
+
+  // POST /api/notifications/read-all — markeer alles als gelezen
+  app.post("/api/notifications/read-all", (req, res) => {
+    const marked = storage.markAllNotificationsRead();
+    res.json({ marked });
+  });
+
+  // DELETE /api/notifications/:id — verwijder één melding
+  app.delete("/api/notifications/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig melding-ID" });
+    storage.deleteNotification(id);
+    res.status(204).end();
+  });
+
+  // DELETE /api/notifications — wis alles
+  app.delete("/api/notifications", (req, res) => {
+    storage.clearNotifications();
+    res.status(204).end();
+  });
+
+  // Realtime WebSocket-stream (gotify /stream) opzetten op /api/stream.
+  setupNotificationStream(httpServer);
 
   // Start de in-proces loop-scheduler.
   startScheduler();
