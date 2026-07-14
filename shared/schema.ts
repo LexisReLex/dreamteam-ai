@@ -64,3 +64,51 @@ export const userProfile = sqliteTable("user_profile", {
 export const insertUserProfileSchema = createInsertSchema(userProfile).omit({ id: true });
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type UserProfile = typeof userProfile.$inferSelect;
+
+// ─── Agent Loops (loop engineering) ───────────────────────────────────────────
+// Een loop is een autonome, zelf-scorende cyclus bovenop een agent:
+// scheduler → maker (de agent) → checker (verifier sub-agent) → state → score.
+export const CADENCES = ["manual", "15m", "2h", "6h", "1d"] as const;
+export const LOOP_LEVELS = ["L1", "L2", "L3"] as const;
+export const LOOP_VERDICTS = ["APPROVE", "REJECT", "ESCALATE", "ERROR"] as const;
+
+export const loops = sqliteTable("loops", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: integer("agent_id").notNull(),
+  name: text("name").notNull(),
+  objective: text("objective").notNull(),
+  cadence: text("cadence", { enum: CADENCES }).notNull().default("manual"),
+  level: text("level", { enum: LOOP_LEVELS }).notNull().default("L1"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  state: text("state").notNull().default(""),
+  lastScore: integer("last_score"),
+  lastVerdict: text("last_verdict", { enum: LOOP_VERDICTS }),
+  lastRunAt: text("last_run_at"),
+  nextRunAt: text("next_run_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertLoopSchema = createInsertSchema(loops)
+  .omit({ id: true, state: true, lastScore: true, lastVerdict: true, lastRunAt: true, nextRunAt: true, createdAt: true })
+  .extend({
+    name: z.string().min(1).max(80),
+    objective: z.string().min(1).max(1000),
+  });
+export type InsertLoop = z.infer<typeof insertLoopSchema>;
+export type Loop = typeof loops.$inferSelect;
+
+// Loop runs — het runlog (maker-output + checker-oordeel)
+export const loopRuns = sqliteTable("loop_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  loopId: integer("loop_id").notNull(),
+  makerOutput: text("maker_output").notNull().default(""),
+  verdict: text("verdict", { enum: LOOP_VERDICTS }).notNull(),
+  score: integer("score").notNull().default(0),
+  critique: text("critique").notNull().default(""),
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
+export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
+export type LoopRun = typeof loopRuns.$inferSelect;

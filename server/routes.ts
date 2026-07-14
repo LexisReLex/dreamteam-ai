@@ -1,43 +1,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
-
-// Set up HTTPS proxy for Anthropic API calls using undici's ProxyAgent
-// This is needed because Node.js fetch doesn't respect HTTPS_PROXY env var natively
-if (process.env.HTTPS_PROXY) {
-  const { ProxyAgent, setGlobalDispatcher } = require("undici");
-  const dispatcher = new ProxyAgent(process.env.HTTPS_PROXY);
-  setGlobalDispatcher(dispatcher);
-}
-
-// ─── Dagelijks kosten-budget ──────────────────────────────────────────────────
-// Beschermt tegen onverwachte API-kosten. Max 100.000 input tokens per dag (~€2-3).
-// Reset elke 24 uur. Instelbaar via DAILY_TOKEN_LIMIT env var.
-const DAILY_TOKEN_LIMIT = parseInt(process.env.DAILY_TOKEN_LIMIT || "100000");
-let dailyTokensUsed = 0;
-let budgetResetAt = Date.now() + 24 * 60 * 60 * 1000;
-
-function checkAndUpdateBudget(estimatedTokens: number): boolean {
-  if (Date.now() > budgetResetAt) {
-    dailyTokensUsed = 0;
-    budgetResetAt = Date.now() + 24 * 60 * 60 * 1000;
-    console.log("[budget] Dagelijks token-limiet gereset.");
-  }
-  if (dailyTokensUsed + estimatedTokens > DAILY_TOKEN_LIMIT) {
-    console.warn(`[budget] Dagelijks limiet bereikt: ${dailyTokensUsed}/${DAILY_TOKEN_LIMIT} tokens`);
-    return false;
-  }
-  dailyTokensUsed += estimatedTokens;
-  return true;
-}
-
-// Initialize Anthropic client
-const anthropicClient = new Anthropic({
-  apiKey: process.env.CUSTOM_CRED_API_ANTHROPIC_COM_TOKEN || process.env.ANTHROPIC_API_KEY || "placeholder",
-});
+import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
+import { agentSystemPrompts } from "./prompts";
+import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -65,33 +33,10 @@ function rateLimit(maxRequests: number, windowMs: number) {
 // Clean up rate limit map every 5 minutes to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, entry] of rateLimitMap.entries()) {
+  for (const [ip, entry] of Array.from(rateLimitMap.entries())) {
     if (now > entry.resetAt) rateLimitMap.delete(ip);
   }
 }, 5 * 60 * 1000);
-
-// ─── Agent system prompts ─────────────────────────────────────────────────────
-const agentSystemPrompts: Record<number, string> = {
-  1: `Je bent Nova, een expert Marketing Strateeg voor Nederlandse ondernemers. Je helpt met campagnes, merkpositionering, doelgroepanalyse, content marketing en ROI-optimalisatie. Je geeft concrete, actionable adviezen op maat voor de ondernemer. Je bent enthousiast, strategisch en resultaatgericht. Je communiceert altijd in de taal van de gebruiker. Bij elke vraag geef je minimaal 3 concrete stappen of aanbevelingen. Je hebt diepgaande kennis van Nederlandse marketingkanalen, social media, SEA/SEO en B2B/B2C marketing.`,
-
-  2: `Je bent Rex, een doorgewinterde Sales Coach voor Nederlandse ondernemers. Je specialiseert je in pipeline management, deal coaching, bezwaar-afhandeling en het sluiten van deals. Je geeft praktische salestips gebaseerd op bewezen methodieken (SPIN selling, Challenger Sale, etc.). Je bent direct, no-nonsense en resultaatgericht. Je communiceert altijd in de taal van de gebruiker. Je helpt ondernemers hun omzet te verhogen met concrete scripts, tactieken en strategieën.`,
-
-  3: `Je bent Mira, een creatieve Content Creator voor Nederlandse ondernemers. Je schrijft blogs, social media posts, nieuwsbrieven, video-scripts en websiteteksten. Je kunt direct bruikbare content produceren op verzoek. Je bent creatief, storytelling-gedreven en begrijpt SEO. Je communiceert altijd in de taal van de gebruiker. Wanneer gevraagd om content te schrijven, lever je de volledige uitgewerkte tekst direct op — geen samenvattingen maar echte content klaar voor gebruik.`,
-
-  4: `Je bent Kai, een SEO Specialist voor Nederlandse ondernemers. Je helpt met keyword research, technische SEO, linkbuilding, lokale SEO en content-optimalisatie. Je geeft concrete adviezen die direct implementeerbaar zijn. Je bent analytisch en datagedreven. Je communiceert altijd in de taal van de gebruiker. Je kent de Nederlandse zoekmarkt door en door en weet hoe Google.nl werkt voor Nederlandse bedrijven.`,
-
-  5: `Je bent Zara, een empathische Klantenservice Specialist voor Nederlandse ondernemers. Je helpt met het opzetten van klantenservice-systemen, FAQ's schrijven, klachtafhandeling, NPS verbetering en klantcommunicatie-scripts. Je bent warm, professioneel en klantgericht. Je communiceert altijd in de taal van de gebruiker. Je kunt direct kant-en-klare e-mails, antwoordtemplates en FAQ-antwoorden schrijven die de ondernemer direct kan gebruiken.`,
-
-  6: `Je bent Finn, een scherpe Financieel Adviseur voor Nederlandse ondernemers. Je helpt met cashflow-analyse, budgetplanning, investeringsadvies, KPI-rapportages en financiële strategie. Je bent nauwkeurig, analytisch en praktisch. Je communiceert altijd in de taal van de gebruiker. Je hebt kennis van Nederlandse belastingregels, BTW, KvK-verplichtingen en financiële rapportage-eisen voor MKB. Je geeft altijd concrete cijfermatige voorbeelden.`,
-
-  7: `Je bent Luna, een enthousiaste Social Media Manager voor Nederlandse ondernemers. Je beheert Instagram, LinkedIn, TikTok, Facebook en andere platforms. Je kunt direct posts, captions, content-kalenders en campagnes maken. Je bent creatief, trends-bewust en community-gedreven. Je communiceert altijd in de taal van de gebruiker. Wanneer gevraagd om posts te schrijven, lever je de volledige uitgewerkte post inclusief hashtags direct op.`,
-
-  8: `Je bent Atlas, een analytische Data Analist voor Nederlandse ondernemers. Je helpt met het interpreteren van data, het opzetten van KPI-dashboards, A/B testen, business intelligence en datagedreven beslissingen. Je bent methodisch, precies en helder in je uitleg. Je communiceert altijd in de taal van de gebruiker. Je kunt complexe data vertalen naar begrijpelijke inzichten en concrete aanbevelingen voor ondernemers.`,
-
-  9: `Je bent Sage, een warme HR & Recruitment Specialist voor Nederlandse ondernemers. Je helpt met vacatureteksten schrijven, onboarding-processen, functiebeschrijvingen, arbeidscontracten adviseren en cultuurontwikkeling. Je bent mensgericht, professioneel en kent de Nederlandse arbeidsmarkt en wetgeving. Je communiceert altijd in de taal van de gebruiker. Je kunt direct uitgewerkte vacatureteksten, onboarding-checklists en HR-documenten produceren.`,
-
-  10: `Je bent Orion, een strategische Bedrijfsadviseur voor Nederlandse ondernemers. Je helpt met OKR-frameworks opstellen, marktanalyses, groeistrategie, stakeholder management en bedrijfsvisie. Je bent visioner, analytisch en helikopter-view denker. Je communiceert altijd in de taal van de gebruiker. Je helpt ondernemers het grotere plaatje te zien en concrete strategische keuzes te maken die leiden tot duurzame groei.`,
-};
 
 // Seed data
 const SEED_AGENTS = [
@@ -269,7 +214,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Update teller met werkelijke tokens als beschikbaar
       if (response.usage) {
         const actual = response.usage.input_tokens + response.usage.output_tokens;
-        dailyTokensUsed += (actual - estimatedTokens); // correctie
+        reconcileBudget(actual, estimatedTokens); // correctie
       }
     } catch (err: any) {
       console.error("Anthropic API error:", err?.message || err);
@@ -296,6 +241,104 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const updated = storage.updateProfile(profile.id, result.data);
     res.json(updated);
   });
+
+  // ─── Agent Loops (loop engineering) ─────────────────────────────────────────
+
+  function loopWithAgent(loop: ReturnType<typeof storage.getLoop>) {
+    if (!loop) return loop;
+    const agent = storage.getAgent(loop.agentId);
+    return { ...loop, agent: agent || null };
+  }
+
+  // GET /api/loops
+  app.get("/api/loops", (req, res) => {
+    const loops = storage.getLoops();
+    res.json(loops.map((l) => loopWithAgent(l)));
+  });
+
+  // GET /api/loops/:id  (met laatste runs)
+  app.get("/api/loops/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
+    const loop = storage.getLoop(id);
+    if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
+    res.json({ ...loopWithAgent(loop), runs: storage.getLoopRuns(id, 20) });
+  });
+
+  // POST /api/loops
+  app.post("/api/loops", (req, res) => {
+    const result = insertLoopSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+    if (!storage.getAgent(result.data.agentId)) return res.status(400).json({ error: "Agent niet gevonden" });
+
+    const enabled = result.data.enabled ?? false;
+    const cadence = result.data.cadence ?? "manual";
+    const nextRunAt = enabled && cadence !== "manual" ? computeNextRunAt(cadence) : null;
+    const loop = storage.createLoop(result.data);
+    const updated = storage.updateLoop(loop.id, { nextRunAt });
+    res.status(201).json(loopWithAgent(updated));
+  });
+
+  // PATCH /api/loops/:id  (naam, objective, cadence, level, enabled)
+  const loopUpdateSchema = insertLoopSchema.partial().omit({ agentId: true });
+  app.patch("/api/loops/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
+    const loop = storage.getLoop(id);
+    if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
+
+    const result = loopUpdateSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+
+    const next = { ...loop, ...result.data };
+    // Herbereken planning als cadans of enabled verandert.
+    const nextRunAt =
+      next.enabled && next.cadence !== "manual"
+        ? loop.nextRunAt && loop.cadence === next.cadence && loop.enabled
+          ? loop.nextRunAt
+          : computeNextRunAt(next.cadence)
+        : null;
+
+    const updated = storage.updateLoop(id, { ...result.data, nextRunAt });
+    res.json(loopWithAgent(updated));
+  });
+
+  // DELETE /api/loops/:id
+  app.delete("/api/loops/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
+    if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
+    storage.deleteLoop(id);
+    res.status(204).end();
+  });
+
+  // POST /api/loops/:id/run — draai nu (rate limited: 10/min per IP)
+  app.post("/api/loops/:id/run", rateLimit(10, 60 * 1000), async (req, res) => {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
+    const loop = storage.getLoop(id);
+    if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
+
+    const run = await runLoop(loop);
+    if (!run) return res.status(409).json({ error: "Deze loop draait al. Wacht tot de huidige run klaar is." });
+    res.json({ run, loop: loopWithAgent(storage.getLoop(id)) });
+  });
+
+  // GET /api/loops/:id/runs
+  app.get("/api/loops/:id/runs", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
+    if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
+    res.json(storage.getLoopRuns(id, 20));
+  });
+
+  // GET /api/budget — huidige token-budgetstatus (governance)
+  app.get("/api/budget", (req, res) => {
+    res.json(getBudgetStatus());
+  });
+
+  // Start de in-proces loop-scheduler.
+  startScheduler();
 
   // GET /api/stats
   app.get("/api/stats", (req, res) => {

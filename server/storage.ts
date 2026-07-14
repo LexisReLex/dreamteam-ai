@@ -1,10 +1,19 @@
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile } from "@shared/schema";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
 
-const sqlite = new Database("data.db");
+// Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
+// persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
+// volume is SQLite vluchtig: loops, runs en state overleven een redeploy niet.
+const DB_PATH = process.env.DB_PATH || "data.db";
+// Zorg dat de map bestaat (bv. een net gemount /data-volume met subdir).
+try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch { /* map bestaat al of is cwd */ }
+
+const sqlite = new Database(DB_PATH);
 export const db = drizzle(sqlite, { schema });
 
 // Enable WAL mode for performance
@@ -55,6 +64,33 @@ sqlite.exec(`
     language TEXT NOT NULL DEFAULT 'nl'
   );
 
+  CREATE TABLE IF NOT EXISTS loops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    cadence TEXT NOT NULL DEFAULT 'manual',
+    level TEXT NOT NULL DEFAULT 'L1',
+    enabled INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT '',
+    last_score INTEGER,
+    last_verdict TEXT,
+    last_run_at TEXT,
+    next_run_at TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS loop_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    maker_output TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL,
+    score INTEGER NOT NULL DEFAULT 0,
+    critique TEXT NOT NULL DEFAULT '',
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
 `);
 
 // Safe migration: add language column if not exists
@@ -81,6 +117,18 @@ export interface IStorage {
   getProfile(): UserProfile | undefined;
   createProfile(data: InsertUserProfile): UserProfile;
   updateProfile(id: number, data: Partial<InsertUserProfile>): UserProfile | undefined;
+
+  // Loops
+  getLoops(): Loop[];
+  getLoop(id: number): Loop | undefined;
+  getDueLoops(nowIso: string): Loop[];
+  createLoop(data: InsertLoop): Loop;
+  updateLoop(id: number, data: Partial<Loop>): Loop | undefined;
+  deleteLoop(id: number): void;
+
+  // Loop runs
+  getLoopRuns(loopId: number, limit?: number): LoopRun[];
+  createLoopRun(data: InsertLoopRun): LoopRun;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -153,6 +201,55 @@ export class Storage implements IStorage {
   updateProfile(id: number, data: Partial<InsertUserProfile>): UserProfile | undefined {
     db.update(schema.userProfile).set(data).where(eq(schema.userProfile.id, id)).run();
     return db.select().from(schema.userProfile).where(eq(schema.userProfile.id, id)).get();
+  }
+
+  // ─── Loops ──────────────────────────────────────────────────────────────────
+  getLoops(): Loop[] {
+    return db.select().from(schema.loops).all();
+  }
+
+  getLoop(id: number): Loop | undefined {
+    return db.select().from(schema.loops).where(eq(schema.loops.id, id)).get();
+  }
+
+  getDueLoops(nowIso: string): Loop[] {
+    return this.getLoops().filter(
+      (l) => l.enabled && l.cadence !== "manual" && l.nextRunAt != null && l.nextRunAt <= nowIso,
+    );
+  }
+
+  createLoop(data: InsertLoop): Loop {
+    const now = new Date().toISOString();
+    return db.insert(schema.loops).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  updateLoop(id: number, data: Partial<Loop>): Loop | undefined {
+    const { id: _ignore, ...rest } = data;
+    if (Object.keys(rest).length > 0) {
+      db.update(schema.loops).set(rest).where(eq(schema.loops.id, id)).run();
+    }
+    return this.getLoop(id);
+  }
+
+  deleteLoop(id: number): void {
+    db.delete(schema.loopRuns).where(eq(schema.loopRuns.loopId, id)).run();
+    db.delete(schema.loops).where(eq(schema.loops.id, id)).run();
+  }
+
+  // ─── Loop runs ──────────────────────────────────────────────────────────────
+  getLoopRuns(loopId: number, limit = 20): LoopRun[] {
+    return db
+      .select()
+      .from(schema.loopRuns)
+      .where(eq(schema.loopRuns.loopId, loopId))
+      .all()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  createLoopRun(data: InsertLoopRun): LoopRun {
+    const now = new Date().toISOString();
+    return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {
