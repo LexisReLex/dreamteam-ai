@@ -97,6 +97,7 @@ sqlite.exec(`
     plan TEXT NOT NULL DEFAULT '',
     debrief TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'planning',
+    current_agent_id INTEGER,
     tokens_used INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
@@ -116,6 +117,8 @@ sqlite.exec(`
 
 // Safe migration: add language column if not exists
 try { sqlite.exec("ALTER TABLE user_profile ADD COLUMN language TEXT NOT NULL DEFAULT 'nl'"); } catch (_) { /* column already exists */ }
+// Safe migration: add current_agent_id to orchestrations for live status
+try { sqlite.exec("ALTER TABLE orchestrations ADD COLUMN current_agent_id INTEGER"); } catch (_) { /* column already exists */ }
 
 export interface IStorage {
   // Agents

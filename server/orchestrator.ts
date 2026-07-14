@@ -2,7 +2,7 @@ import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget } from "./ai";
 import { getAgentSystemPrompt } from "./prompts";
 import { storage } from "./storage";
-import type { Agent, Orchestration, OrchestrationStep } from "@shared/schema";
+import type { Agent, Orchestration } from "@shared/schema";
 
 // ─── Modellen per laag (orchestrator-worker) ──────────────────────────────────
 // Het "CEO-brein" (plannen + synthese) draait standaard op hetzelfde bewezen
@@ -123,24 +123,28 @@ function tokensOf(resp: Message): number {
   return resp.usage ? resp.usage.input_tokens + resp.usage.output_tokens : 0;
 }
 
-export interface OrchestrationResult {
-  orchestration: Orchestration;
-  steps: OrchestrationStep[];
-}
-
-// ─── Eén orchestratie draaien: plan → dispatch → synthese ──────────────────────
-export async function runOrchestration(command: string): Promise<OrchestrationResult> {
+// ─── Orchestratie starten (sync) → achtergrondrun (async) ──────────────────────
+// Geeft direct de "planning"-rij terug zodat de client kan gaan pollen en de
+// live status per specialist kan tonen. De echte plan → dispatch → synthese
+// draait op de achtergrond (in-proces, net als de loop-scheduler) en werkt de
+// rij + currentAgentId onderweg bij.
+export function startOrchestration(command: string): Orchestration {
   const orch = storage.createOrchestration({ command });
 
   // Budget vooraf reserveren (kostenbescherming, gedeeld met chat + loops).
   if (!checkAndUpdateBudget(ESTIMATED_TOKENS)) {
-    const updated = storage.updateOrchestration(orch.id, {
+    return storage.updateOrchestration(orch.id, {
       status: "error",
       debrief: "Dagelijks token-budget bereikt — opdracht overgeslagen (kostenbescherming).",
-    });
-    return { orchestration: updated!, steps: [] };
+    })!;
   }
 
+  // Fire-and-forget: de achtergrondrun reconcilieert het budget zelf aan het eind.
+  void executeOrchestration(orch.id, command);
+  return orch;
+}
+
+async function executeOrchestration(orchId: number, command: string): Promise<void> {
   let tokensUsed = 0;
   try {
     const agents = storage.getAgents();
@@ -164,17 +168,20 @@ export async function runOrchestration(command: string): Promise<OrchestrationRe
       if (!plan.rationale) plan.rationale = "Geen duidelijke opsplitsing — volledige opdracht naar één specialist gerouteerd.";
     }
 
-    storage.updateOrchestration(orch.id, { plan: plan.rationale, status: "dispatching" });
+    storage.updateOrchestration(orchId, { plan: plan.rationale, status: "dispatching" });
 
     // ── DISPATCH: elke specialist voert zijn deelopdracht uit (sequentieel) ──
     const agentMap = new Map(agents.map((a) => [a.id, a] as const));
-    const doneSteps: OrchestrationStep[] = [];
     const synthInput: { agentName: string; task: string; output: string }[] = [];
 
     for (let i = 0; i < plan.steps.length; i++) {
       const step = plan.steps[i];
       const agent = agentMap.get(step.agentId);
       const agentName = agent?.name ?? "Specialist";
+
+      // Live status: markeer wélke specialist nú draait (voor het network in de UI).
+      storage.updateOrchestration(orchId, { currentAgentId: step.agentId });
+
       let output = "(geen output geproduceerd)";
       let stepTokens = 0;
       try {
@@ -191,20 +198,19 @@ export async function runOrchestration(command: string): Promise<OrchestrationRe
       }
       tokensUsed += stepTokens;
 
-      const saved = storage.createOrchestrationStep({
-        orchestrationId: orch.id,
+      storage.createOrchestrationStep({
+        orchestrationId: orchId,
         agentId: step.agentId,
         stepOrder: i,
         task: step.task,
         output,
         tokensUsed: stepTokens,
       });
-      doneSteps.push(saved);
       synthInput.push({ agentName, task: step.task, output });
     }
 
     // ── SYNTHESE: de CEO bundelt alles tot de operator-debrief ──
-    storage.updateOrchestration(orch.id, { status: "synthesizing" });
+    storage.updateOrchestration(orchId, { status: "synthesizing", currentAgentId: null });
 
     let debrief = "";
     try {
@@ -221,20 +227,20 @@ export async function runOrchestration(command: string): Promise<OrchestrationRe
     }
 
     reconcileBudget(tokensUsed, ESTIMATED_TOKENS);
-    const updated = storage.updateOrchestration(orch.id, {
+    storage.updateOrchestration(orchId, {
       status: "done",
       debrief: debrief || "(geen debrief geproduceerd)",
+      currentAgentId: null,
       tokensUsed,
     });
-    return { orchestration: updated!, steps: doneSteps };
   } catch (err: any) {
     reconcileBudget(tokensUsed, ESTIMATED_TOKENS);
-    console.error(`[orchestrator ${orch.id}] fout:`, err?.message || err);
-    const updated = storage.updateOrchestration(orch.id, {
+    console.error(`[orchestrator ${orchId}] fout:`, err?.message || err);
+    storage.updateOrchestration(orchId, {
       status: "error",
       debrief: `Fout tijdens orchestratie: ${err?.message || "onbekende fout"}`,
+      currentAgentId: null,
       tokensUsed,
     });
-    return { orchestration: updated!, steps: storage.getOrchestrationSteps(orch.id) };
   }
 }

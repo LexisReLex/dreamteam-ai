@@ -6,7 +6,7 @@ import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
-import { runOrchestration, ORCHESTRATOR_MODEL, SPECIALIST_MODEL } from "./orchestrator";
+import { startOrchestration, ORCHESTRATOR_MODEL, SPECIALIST_MODEL } from "./orchestrator";
 import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
@@ -380,12 +380,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // POST /api/orchestrate — geef de CEO één opdracht (rate limited: 5/min per IP)
-  app.post("/api/orchestrate", guard, rateLimit(5, 60 * 1000), async (req, res) => {
+  // Start de orchestratie en geeft direct de "planning"-rij terug; de client pollt
+  // GET /api/orchestrations/:id voor de live status per specialist.
+  app.post("/api/orchestrate", guard, rateLimit(5, 60 * 1000), (req, res) => {
     const result = insertOrchestrationSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.flatten() });
 
-    const { orchestration } = await runOrchestration(result.data.command);
-    res.json(orchestrationWithSteps(storage.getOrchestration(orchestration.id)));
+    const orchestration = startOrchestration(result.data.command);
+    res.status(202).json(orchestrationWithSteps(storage.getOrchestration(orchestration.id)));
   });
 
   // Start de in-proces loop-scheduler.

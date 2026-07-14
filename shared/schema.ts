@@ -126,6 +126,7 @@ export const orchestrations = sqliteTable("orchestrations", {
   plan: text("plan").notNull().default(""), // korte routing-rationale van de orchestrator
   debrief: text("debrief").notNull().default(""), // eindsamenvatting voor de operator
   status: text("status", { enum: ORCHESTRATION_STATUS }).notNull().default("planning"),
+  currentAgentId: integer("current_agent_id"), // welke specialist nú draait (live status), null = geen
   tokensUsed: integer("tokens_used").notNull().default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });

@@ -64,15 +64,21 @@ export default function Command() {
   const [command, setCommand] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
-  const [pulseIdx, setPulseIdx] = useState(0);
 
   const { data: agents } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
   const { data: meta } = useQuery<OrchestratorMeta>({ queryKey: ["/api/orchestrator"] });
   const { data: history } = useQuery<Orchestration[]>({ queryKey: ["/api/orchestrations"] });
 
+  // Detail-query pollt terwijl de run nog bezig is (planning → dispatching →
+  // synthesizing) en stopt zodra hij done/error is. Zo zie je de specialisten
+  // live oplichten.
   const { data: detail } = useQuery<OrchestrationDetail>({
     queryKey: ["/api/orchestrations", String(selectedId)],
     enabled: selectedId != null,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s && (s === "done" || s === "error") ? false : 1200;
+    },
   });
 
   const orchestrate = useMutation({
@@ -81,25 +87,33 @@ export default function Command() {
       return res.json() as Promise<OrchestrationDetail>;
     },
     onSuccess: (data) => {
+      // De POST geeft de "planning"-rij terug; toon 'm meteen en laat de query pollen.
       setSelectedId(data.id);
       qc.setQueryData(["/api/orchestrations", String(data.id)], data);
-      qc.invalidateQueries({ queryKey: ["/api/orchestrator"] });
       qc.invalidateQueries({ queryKey: ["/api/orchestrations"] });
-      qc.invalidateQueries({ queryKey: ["/api/budget"] });
     },
   });
 
-  const running = orchestrate.isPending;
+  const liveStatus = selectedId != null ? detail?.status : undefined;
+  const isLive = liveStatus != null && liveStatus !== "done" && liveStatus !== "error";
+  const running = orchestrate.isPending || isLive;
 
-  // Laat tijdens een run de specialisten om de beurt "oplichten" (network-vibe).
+  // Zodra een run klaar is: ververs de command-laag-stats, geschiedenis en budget.
   useEffect(() => {
-    if (!running || !agents?.length) return;
-    const iv = setInterval(() => setPulseIdx((i) => (i + 1) % agents.length), 550);
-    return () => clearInterval(iv);
-  }, [running, agents?.length]);
+    if (liveStatus === "done" || liveStatus === "error") {
+      qc.invalidateQueries({ queryKey: ["/api/orchestrator"] });
+      qc.invalidateQueries({ queryKey: ["/api/orchestrations"] });
+      qc.invalidateQueries({ queryKey: ["/api/budget"] });
+    }
+  }, [liveStatus, qc]);
 
-  // Welke agents deden mee aan de getoonde orchestratie (voor de highlight).
-  const activeAgentIds = new Set((detail?.steps ?? []).map((s) => s.agentId));
+  // Live network-status, afgeleid van de echte run-status:
+  //  - CEO werkt tijdens plannen én bundelen (en direct na versturen).
+  //  - de specialist in detail.currentAgentId werkt nú; afgeronde stappen = done.
+  const doneAgentIds = new Set((detail?.steps ?? []).map((s) => s.agentId));
+  const currentAgentId = isLive ? detail?.currentAgentId ?? null : null;
+  const ceoWorking =
+    orchestrate.isPending || liveStatus === "planning" || liveStatus === "synthesizing";
 
   const submit = () => {
     const cmd = command.trim();
@@ -138,7 +152,7 @@ export default function Command() {
           <div className="flex justify-center">
             <div className={cn(
               "relative w-full max-w-xl rounded-xl border p-4 transition-all",
-              running
+              ceoWorking
                 ? "border-[rgba(139,92,246,0.5)] bg-[rgba(139,92,246,0.08)] glow-blue"
                 : "border-[rgba(59,130,246,0.25)] bg-[rgba(59,130,246,0.05)]",
             )}>
@@ -152,10 +166,10 @@ export default function Command() {
                     <h3 className="text-base font-bold">CEO / Orchestrator</h3>
                     <span className={cn(
                       "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border",
-                      running ? "text-yellow-300 bg-yellow-400/10 border-yellow-400/25" : "text-green-300 bg-green-400/10 border-green-400/25",
+                      ceoWorking ? "text-yellow-300 bg-yellow-400/10 border-yellow-400/25" : "text-green-300 bg-green-400/10 border-green-400/25",
                     )}>
-                      <span className={cn("w-1.5 h-1.5 rounded-full", running ? "bg-yellow-400 animate-pulse" : "bg-green-400")} />
-                      {running ? "working" : "idle"}
+                      <span className={cn("w-1.5 h-1.5 rounded-full", ceoWorking ? "bg-yellow-400 animate-pulse" : "bg-green-400")} />
+                      {ceoWorking ? "working" : "idle"}
                     </span>
                   </div>
                   <p className="text-[11px] uppercase tracking-wider text-primary/70 font-semibold mt-0.5">Command Layer</p>
@@ -189,10 +203,10 @@ export default function Command() {
 
           {/* Specialists */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-            {(agents ?? []).map((a, i) => {
+            {(agents ?? []).map((a) => {
               const Icon = getLucideIcon(a.avatarIcon);
-              const isActive = running ? i === pulseIdx : activeAgentIds.has(a.id);
-              const isWorking = running && i === pulseIdx;
+              const isWorking = currentAgentId === a.id;
+              const isActive = isWorking || doneAgentIds.has(a.id);
               return (
                 <div
                   key={a.id}
@@ -311,8 +325,17 @@ export default function Command() {
                 <div className="flex items-start gap-2 text-sm text-red-300">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {detail.debrief}
                 </div>
+              ) : detail.debrief ? (
+                <pre className="text-[13px] whitespace-pre-wrap font-sans text-foreground/90 leading-relaxed">{detail.debrief}</pre>
+              ) : isLive ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {detail.status === "planning" ? "De CEO plant het werk…"
+                    : detail.status === "synthesizing" ? "De CEO bundelt de bijdragen tot een debrief…"
+                    : "Specialisten aan het werk…"}
+                </div>
               ) : (
-                <pre className="text-[13px] whitespace-pre-wrap font-sans text-foreground/90 leading-relaxed">{detail.debrief || "—"}</pre>
+                <pre className="text-[13px] whitespace-pre-wrap font-sans text-foreground/90 leading-relaxed">—</pre>
               )}
             </div>
 
