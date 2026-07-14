@@ -1,9 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Users, CheckCircle, Clock, Zap, ArrowRight, Activity, TrendingUp } from "lucide-react";
+import { Users, CheckCircle, Clock, Zap, ArrowRight, Activity, TrendingUp, RefreshCw, Gauge } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/LanguageContext";
-import type { UserProfile, Agent } from "@shared/schema";
+import type { UserProfile, Agent, Loop } from "@shared/schema";
+
+type LoopSummary = Loop & { agent?: Agent | null };
+
+function loopScoreColor(score: number | null) {
+  if (score == null) return "text-muted-foreground";
+  if (score >= 70) return "text-green-400";
+  if (score >= 40) return "text-yellow-400";
+  return "text-red-400";
+}
 
 interface Stats {
   activeAgents: number;
@@ -45,6 +54,16 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({ queryKey: ["/api/stats"] });
   const { data: activity, isLoading: activityLoading } = useQuery<ActivityTask[]>({ queryKey: ["/api/activity"] });
   const { data: agents } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
+  const { data: loops } = useQuery<LoopSummary[]>({ queryKey: ["/api/loops"] });
+
+  const scoredLoops = loops?.filter((l) => l.lastScore != null) ?? [];
+  const enabledLoops = loops?.filter((l) => l.enabled).length ?? 0;
+  const avgLoopScore = scoredLoops.length
+    ? Math.round(scoredLoops.reduce((sum, l) => sum + (l.lastScore ?? 0), 0) / scoredLoops.length)
+    : null;
+  const topLoops = [...(loops ?? [])]
+    .sort((a, b) => (b.lastScore ?? -1) - (a.lastScore ?? -1))
+    .slice(0, 3);
 
   function getGreeting() {
     const h = new Date().getHours();
@@ -186,6 +205,56 @@ export default function Dashboard() {
                 data-testid="link-view-all-agents">
                 {t("view_all_agents")} <ArrowRight className="w-3 h-3" />
               </Link>
+            </div>
+
+            {/* Agent Loops */}
+            <div className="glass-card rounded-xl p-5" data-testid="dashboard-loops">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-primary" />
+                  <h2 className="font-semibold text-sm" style={{ fontFamily: "'Clash Display', sans-serif" }}>{t("nav_loops")}</h2>
+                </div>
+                <Link href="/loops" className="text-xs text-primary hover:text-primary/80 flex items-center gap-1" data-testid="link-all-loops">
+                  Alle loops <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+
+              {!loops || loops.length === 0 ? (
+                <Link href="/loops" className="block text-center py-4 rounded-lg border border-dashed border-[rgba(59,130,246,0.2)] hover:border-primary/40 hover:bg-primary/5 transition-all"
+                  data-testid="link-discover-loops">
+                  <RefreshCw className="w-5 h-5 text-muted-foreground mx-auto mb-1.5" />
+                  <p className="text-xs text-muted-foreground">Start je eerste autonome loop</p>
+                </Link>
+              ) : (
+                <>
+                  <div className="flex items-center gap-4 mb-3">
+                    <div>
+                      <div className="text-xl font-bold leading-none" style={{ fontFamily: "'Clash Display', sans-serif" }}>{enabledLoops}</div>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-1">actief</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Gauge className={cn("w-4 h-4", loopScoreColor(avgLoopScore))} />
+                      <div>
+                        <div className={cn("text-xl font-bold leading-none", loopScoreColor(avgLoopScore))} style={{ fontFamily: "'Clash Display', sans-serif" }}>
+                          {avgLoopScore ?? "—"}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-1">gem. score</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {topLoops.map((loop) => (
+                      <Link key={loop.id} href="/loops"
+                        className="flex items-center gap-2 p-2 rounded-lg bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(59,130,246,0.06)] transition-colors"
+                        data-testid={`dashboard-loop-${loop.id}`}>
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: loop.agent?.avatarColor ?? "#3b82f6" }} />
+                        <span className="text-xs flex-1 min-w-0 truncate">{loop.name}</span>
+                        <span className={cn("text-xs font-bold flex-shrink-0", loopScoreColor(loop.lastScore))}>{loop.lastScore ?? "—"}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Plan badge */}
