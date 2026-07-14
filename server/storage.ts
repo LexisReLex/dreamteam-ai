@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, Graph } from "@shared/schema";
 
 // Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
 // persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
@@ -91,6 +91,21 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS graphs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL,
+    nodes_json TEXT NOT NULL DEFAULT '[]',
+    edges_json TEXT NOT NULL DEFAULT '[]',
+    report TEXT NOT NULL DEFAULT '',
+    node_count INTEGER NOT NULL DEFAULT 0,
+    edge_count INTEGER NOT NULL DEFAULT 0,
+    community_count INTEGER NOT NULL DEFAULT 0,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
 `);
 
 // Safe migration: add language column if not exists
@@ -129,6 +144,12 @@ export interface IStorage {
   // Loop runs
   getLoopRuns(loopId: number, limit?: number): LoopRun[];
   createLoopRun(data: InsertLoopRun): LoopRun;
+
+  // Graphs (kennisgraaf)
+  getGraphs(): Graph[];
+  getGraph(id: number): Graph | undefined;
+  createGraph(data: Omit<Graph, "id" | "createdAt">): Graph;
+  deleteGraph(id: number): void;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -250,6 +271,28 @@ export class Storage implements IStorage {
   createLoopRun(data: InsertLoopRun): LoopRun {
     const now = new Date().toISOString();
     return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Graphs (kennisgraaf) ─────────────────────────────────────────────────────
+  getGraphs(): Graph[] {
+    return db
+      .select()
+      .from(schema.graphs)
+      .all()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  getGraph(id: number): Graph | undefined {
+    return db.select().from(schema.graphs).where(eq(schema.graphs.id, id)).get();
+  }
+
+  createGraph(data: Omit<Graph, "id" | "createdAt">): Graph {
+    const now = new Date().toISOString();
+    return db.insert(schema.graphs).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  deleteGraph(id: number): void {
+    db.delete(schema.graphs).where(eq(schema.graphs.id, id)).run();
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {
