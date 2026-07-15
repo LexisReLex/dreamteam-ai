@@ -11,7 +11,7 @@ tunnel: <TUNNEL_UUID>
 credentials-file: /Users/lex/.cloudflared/<TUNNEL_UUID>.json
 
 ingress:
-  - hostname: <TUNNEL_HOSTNAME>
+  - hostname: lxy-dispatch.dev
     service: http://127.0.0.1:8787
   # Alles wat niet matcht → 404 (geen open proxy).
   - service: http_status:404

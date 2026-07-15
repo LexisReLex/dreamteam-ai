@@ -1,0 +1,317 @@
+{
+  "name": "Daily Competitor Watcher - Fase 1",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "search-url-1",
+              "name": "search_url",
+              "value": "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=DE&q=%C3%BCbergangsjacke&search_type=keyword_unordered&media_type=all",
+              "type": "string"
+            },
+            {
+              "id": "max-ads-1",
+              "name": "max_ads",
+              "value": 25,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "57d175dd-a9e0-45e0-84b3-4ff2a72b54b0",
+      "name": "Zoek-configuratie",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -144,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/JJghSZmShuco4j9gJ/run-sync-get-dataset-items?maxItems={{ $json.max_ads }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"startUrls\": [\n    { \"url\": \"{{ $json.search_url }}\" }\n  ],\n  \"resultsLimit\": {{ $json.max_ads }}\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "0b642576-78dc-48d6-bf56-64a581ffcabd",
+      "name": "Apify - Facebook Ads scrape",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        80
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "Ni1IvlwISLkEaSI3",
+          "name": "Query Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Extract & dedupe concurrenten\"\n// Workflow: Daily Competitor Watcher - Fase 1\n// Extracted: 2026-05-15\n// Source-of-truth: workflow.json ‚Äî wijzigingen hier moeten teruggesynct worden naar n8n.\n\nconst items = $input.all();\nconst now = new Date();\n\nconst isoDate = now.getFullYear() + '-' +\n  String(now.getMonth() + 1).padStart(2, '0') + '-' +\n  String(now.getDate()).padStart(2, '0');\n\nconst dateStr = String(now.getDate()).padStart(2, '0') + '/' +\n  String(now.getMonth() + 1).padStart(2, '0') + '/' + now.getFullYear();\n\nlet countryCode = 'DE';\ntry {\n  const searchUrl = $('Zoek-configuratie').first().json.search_url || '';\n  const match = searchUrl.match(/country=([A-Z]{2})/i);\n  if (match) countryCode = match[1].toUpperCase();\n} catch(e) {}\n\n// Prefer the ISO-8601 string Apify's FB Ads actor returns; only treat raw\n// epoch as fallback. Raw is Unix SECONDS for this actor, not ms -- detect by\n// magnitude. The explicit DD/MM/YYYY branch stays as a safety net for any\n// legacy locale-formatted strings.\nfunction parseAdStartTime(raw, formatted) {\n  if (formatted && typeof formatted === 'string') {\n    const t = new Date(formatted).getTime();\n    if (Number.isFinite(t)) return t;\n    const m = formatted.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})$/);\n    if (m) {\n      const [, dd, mm, yyyy] = m;\n      const t2 = new Date(Number(yyyy), Number(mm) - 1, Number(dd)).getTime();\n      if (Number.isFinite(t2)) return t2;\n    }\n  }\n  if (typeof raw === 'number' && Number.isFinite(raw)) {\n    // 1e11 ms = year 1973; anything smaller is almost certainly seconds.\n    return raw < 1e11 ? raw * 1000 : raw;\n  }\n  if (raw) {\n    const t = new Date(raw).getTime();\n    if (Number.isFinite(t)) return t;\n  }\n  return NaN;\n}\n\nfunction extractDomain(urls) {\n  for (const u of urls) {\n    if (!u) continue;\n    try {\n      const host = new URL(u).hostname.replace(/^www\\./, '').toLowerCase();\n      if (host && !host.includes('facebook.com') && !host.includes('fb.com') && !host.includes('instagram.com')) {\n        return host;\n      }\n    } catch(e) {}\n  }\n  return '';\n}\n\nconst storeMap = new Map();\n\nitems.forEach(item => {\n  const ad = item.json;\n  if (!ad || !ad.snapshot || !ad.snapshot.pageName) return;\n  const snap = ad.snapshot;\n  const storeName = snap.pageName;\n\n  // Dedup-key priority: pageId > domain+name > name. Prefix preserves\n  // the chosen strategy so duplicates can be audited from the sheet.\n  const pageId = snap.pageId || ad.pageId || '';\n  const websiteDomain = extractDomain([\n    snap.linkUrl, snap.caption, ad.link_url, snap.cta_link, snap.page_profile_uri,\n  ]);\n  let dedupKey;\n  if (pageId) {\n    dedupKey = 'pid:' + pageId;\n  } else if (websiteDomain) {\n    dedupKey = 'dom:' + websiteDomain + '|' + storeName.toLowerCase();\n  } else {\n    dedupKey = 'name:' + storeName.toLowerCase();\n  }\n\n  const startTime = parseAdStartTime(ad.startDate, ad.startDateFormatted);\n  const daysActive = Number.isFinite(startTime)\n    ? Math.round((now.getTime() - startTime) / (1000 * 60 * 60 * 24))\n    : null;\n\n  if (!storeMap.has(dedupKey)) {\n    storeMap.set(dedupKey, {\n      dedupKey,\n      storeName,\n      websiteDomain,\n      pageId,\n      pageProfileUri: snap.pageProfileUri || '',\n      adCount: 0,\n      maxDaysActive: 0,\n      langdraaierCount: 0,\n      datesParseFailed: 0,\n    });\n  }\n  const store = storeMap.get(dedupKey);\n  store.adCount += 1;\n  if (websiteDomain && !store.websiteDomain) store.websiteDomain = websiteDomain;\n  if (daysActive === null) {\n    store.datesParseFailed += 1;\n  } else {\n    if (daysActive > store.maxDaysActive) store.maxDaysActive = daysActive;\n    if (daysActive > 30) store.langdraaierCount += 1;\n  }\n});\n\n// Tier classification rules. Hard skip removes pure noise; rest is sorted A->B->C->RISING by score desc.\nfunction classifyTier(adCount, maxDaysActive) {\n  if (adCount < 3 && maxDaysActive < 7) return 'SKIP';\n  if (adCount >= 30 || maxDaysActive >= 90) return 'A';\n  if (adCount >= 15 || maxDaysActive >= 30) return 'B';\n  if (adCount >= 10 || maxDaysActive >= 14) return 'C';\n  if ((adCount >= 3 && maxDaysActive >= 7) || (maxDaysActive >= 21 && adCount >= 1)) {\n    return 'RISING';\n  }\n  return 'SKIP';\n}\n\nfunction tierLabel(tier) {\n  if (tier === 'A') return 'A -- KILLER';\n  if (tier === 'B') return 'B -- PROMISING';\n  if (tier === 'C') return 'C -- WATCH';\n  if (tier === 'RISING') return 'RISING STAR';\n  return 'SKIP';\n}\n\nconst tierOrder = { 'A': 1, 'B': 2, 'C': 3, 'RISING': 4 };\n\nconst intermediate = [];\nfor (const [, data] of storeMap) {\n  const tier = classifyTier(data.adCount, data.maxDaysActive);\n  if (tier === 'SKIP') continue;\n  const score = Math.round(data.adCount + data.maxDaysActive * 0.5);\n  intermediate.push({ data, tier, score });\n}\n\nintermediate.sort((a, b) => {\n  const ta = tierOrder[a.tier] || 99;\n  const tb = tierOrder[b.tier] || 99;\n  if (ta !== tb) return ta - tb;\n  return b.score - a.score;\n});\n\nconst output = [];\nfor (const { data, tier, score } of intermediate) {\n  let storeUrl = data.websiteDomain;\n  if (storeUrl && !storeUrl.startsWith('http')) {\n    storeUrl = 'https://' + storeUrl;\n  }\n\n  let adLibUrl = '';\n  if (data.pageId) {\n    adLibUrl = 'https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=' + countryCode + '&view_all_page_id=' + data.pageId;\n  } else if (data.pageProfileUri) {\n    adLibUrl = data.pageProfileUri;\n  }\n\n  let activityLabel;\n  if (data.adCount < 20) {\n    activityLabel = 'LAGE ACTIVITEIT (<20 ADS)';\n  } else if (data.adCount < 30) {\n    activityLabel = 'GEMIDDELDE ACTIVITEIT (20-29 ADS)';\n  } else {\n    activityLabel = 'HOGE ACTIVITEIT (30+ ADS)';\n  }\n\n  const noteParts = [];\n  if (data.langdraaierCount > 0) {\n    noteParts.push(data.langdraaierCount + ' langdraaier(s), max ' + data.maxDaysActive + ' dagen');\n  }\n  if (data.datesParseFailed > 0) {\n    noteParts.push(data.datesParseFailed + ' ad(s) zonder bruikbare datum');\n  }\n\n  const sheetDedupKey = countryCode + '|' + data.dedupKey; // FIX 12-07-2026: datum uit dedup-sleutel — één rij per store, dagelijkse update i.p.v. duplicaat\n\n  output.push({\n    json: {\n      'DEDUP KEY': sheetDedupKey,\n      'STORE URL': storeUrl,\n      'AD LIBR. URL': adLibUrl,\n      'DATUM GEVONDEN': dateStr,\n        'ONDERZOEKSDATUM': isoDate,\n      'AANTAL PRODUCTEN': '',\n      'ACTIEVE ADS': data.adCount,\n      'LAATSTE UPDATE': activityLabel,\n      'STORE THEMA': '',\n      'NOTE': noteParts.join(' | '),\n      'STORE NAAM': data.storeName,\n      'TIER': tierLabel(tier),\n      'SCORE': score,\n    },\n  });\n}\n\nreturn output;\n"
+      },
+      "id": "bd1ff9ff-3671-4730-a0be-7c7c3037b79f",
+      "name": "Extract & dedupe concurrenten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/14K6afWfhTraFrzROyQc2yfOxAJFoWbZqkZx_KspbbNU/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/14K6afWfhTraFrzROyQc2yfOxAJFoWbZqkZx_KspbbNU/edit#gid=194910361"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "DEDUP KEY"
+          ],
+          "schema": [
+            {
+              "id": "STORE URL",
+              "displayName": "STORE URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "AD LIBR. URL",
+              "displayName": "AD LIBR. URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "DATUM GEVONDEN",
+              "displayName": "DATUM GEVONDEN",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "AANTAL PRODUCTEN",
+              "displayName": "AANTAL PRODUCTEN",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ACTIEVE ADS",
+              "displayName": "ACTIEVE ADS",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LAATSTE UPDATE",
+              "displayName": "LAATSTE UPDATE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "STORE THEMA",
+              "displayName": "STORE THEMA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "NOTE",
+              "displayName": "NOTE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "STORE NAAM",
+              "displayName": "STORE NAAM",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "DEDUP KEY",
+              "displayName": "DEDUP KEY",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "TIER",
+              "displayName": "TIER",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SCORE",
+              "displayName": "SCORE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "099eab3c-37e6-470c-b1d6-6fe545aea874",
+      "name": "Schrijf naar Competitors sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        528,
+        80
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "EX9DBa73u5LY4KlK",
+          "name": "Lexxy Service Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -144,
+        -144
+      ],
+      "id": "ac7bef1c-a75f-48d9-8609-794ea137061b",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Zoek-configuratie": {
+      "main": [
+        [
+          {
+            "node": "Apify - Facebook Ads scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify - Facebook Ads scrape": {
+      "main": [
+        [
+          {
+            "node": "Extract & dedupe concurrenten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & dedupe concurrenten": {
+      "main": [
+        [
+          {
+            "node": "Schrijf naar Competitors sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Zoek-configuratie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0de16393-c3d3-4661-b8b2-ad772837e13c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3b4bc67b6f14980493bce5d644d7d6bcc7fb05f36fbf0ab33b6358d971bfa33c"
+  },
+  "nodeGroups": [],
+  "id": "Mr4j7huAH2vu1SrA",
+  "tags": []
+}

@@ -5,8 +5,7 @@
   RunAtLoad=false + geen KeepAlive → draait alléén op de kalendertijd, en de
   wrapper stopt zichzelf (en tunnel + endpoint) na 30 min.
 
-  VUL IN <START_HOUR>/<START_MIN> = run-tijd van workflow Mr4j7huAH2vu1SrA
-  MINUS 10 min (bv. run 08:00 -> 07:50). Zie SETUP.md.
+  START = run-tijd (06:45) MINUS 10 min = 06:35. Zie SETUP.md.
 
   Installeren:  cp deploy/com.lexxy.dispatch-window.plist ~/Library/LaunchAgents/
                 launchctl load ~/Library/LaunchAgents/com.lexxy.dispatch-window.plist
@@ -34,9 +33,9 @@
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
-    <integer><START_HOUR></integer>
+    <integer>6</integer>
     <key>Minute</key>
-    <integer><START_MIN></integer>
+    <integer>35</integer>
   </dict>
 
   <key>RunAtLoad</key>

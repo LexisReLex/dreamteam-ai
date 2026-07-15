@@ -69,10 +69,10 @@ Verwacht: `{"ok":true,"service":"dispatch-http"}`. Stop beide met Ctrl-C.
 
 ## Stap F — launchd-venster installeren
 
-De run-tijd bepaalt twee dingen: `START` = **run-tijd − 10 min**.
+Run-tijd = **06:45** (Schedule-trigger). `START` = run − 10 min = **06:35**
+(al ingevuld in de plist: Hour 6, Minute 35).
 
-1. Bewerk `deploy/com.lexxy.dispatch-window.plist`: vul `<START_HOUR>` / `<START_MIN>`
-   (bv. run 08:00 → Hour 7, Minute 50).
+1. Plist-tijden staan al goed; niets meer te wijzigen.
 2. Installeer:
 
 ```
@@ -93,10 +93,10 @@ Handmatig het venster nú testen (zonder op de klok te wachten):
 ## Stap G — Mac-wakker-window (pmset)
 
 launchd vuurt alléén als de Mac wakker is. Wek 'm ~12 min vóór de run
-(`RUN_TIME − 12 min`), dagelijks. Vereist sudo:
+(06:45 − 12 min = **06:33**), dagelijks. Vereist sudo:
 
 ```
-! sudo pmset repeat wakeorpoweron MTWRFSU <WAKE_HH:MM:SS>
+! sudo pmset repeat wakeorpoweron MTWRFSU 06:33:00
 ```
 
 - `wakeorpoweron` = uit slaap wekken **of** aanzetten indien uit.
