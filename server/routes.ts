@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
+import { compress, getHeadroomStats } from "./headroom";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
@@ -181,14 +182,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Save user message
     const userMsg = storage.createMessage({ agentId, role: "user", content });
 
-    // Get conversation history for context (last 10 messages)
+    // Get conversation history for context (last 10 messages). Elk bericht gaat
+    // eerst door de Headroom-compressielaag: ceremonie (whitespace, dubbele lege
+    // regels, JSON-opmaak) verdwijnt zodat de historie minder tokens kost, met
+    // hetzelfde signaal. Het huidige bericht comprimeren we ook.
     const history = storage.getMessages(agentId).slice(-10);
     const conversationHistory = history
       .filter(m => m.id !== userMsg.id)
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map(m => ({ role: m.role as "user" | "assistant", content: compress(m.content).text }));
 
     // Add current message
-    conversationHistory.push({ role: "user", content });
+    conversationHistory.push({ role: "user", content: compress(content).text });
 
     // Schat tokens: ~4 chars per token, plus systeem-prompt overhead
     const estimatedTokens = Math.ceil(content.length / 4) + 500;
@@ -361,6 +365,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       console.error("SEO-analyse fout:", err?.message || err);
       res.status(500).json({ error: "SEO-analyse mislukt. Probeer een andere URL." });
     }
+  });
+
+  // GET /api/headroom — cumulatieve besparing van de context-compressielaag.
+  // Elke bespaarde token is budget dat chat + loops níet verbruikt hebben.
+  app.get("/api/headroom", (req, res) => {
+    res.json(getHeadroomStats());
   });
 
   // Start de in-proces loop-scheduler.
