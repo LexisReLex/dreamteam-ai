@@ -9,6 +9,8 @@ import {
   dispatchTaskWithIO,
 } from "./service";
 import { applyVoice } from "./voice";
+import { defaultEvalConfig } from "./eval";
+import { newTraceId } from "./span";
 import type { DispatchTask, Estimate, Mode, Resolution } from "./types";
 
 interface Args {
@@ -24,11 +26,13 @@ interface Args {
   maxTokens?: number;
   threshold?: number;
   concurrency?: number;
+  evalSample?: number;
+  noEval: boolean;
   help: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { mode: "default", parallel: [], dryRun: false, yes: false, help: false };
+  const a: Args = { mode: "default", parallel: [], dryRun: false, yes: false, noEval: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     const next = () => argv[++i];
@@ -51,6 +55,8 @@ function parseArgs(argv: string[]): Args {
       case "--max-tokens": a.maxTokens = Number(next()); break;
       case "--threshold": a.threshold = Number(next()); break;
       case "--concurrency": a.concurrency = Number(next()); break;
+      case "--eval-sample": a.evalSample = Number(next()); break;
+      case "--no-eval": a.noEval = true; break;
       case "--help": case "-h": a.help = true; break;
       default:
         if (t.startsWith("--")) throw new Error(`Onbekende flag: ${t}`);
@@ -106,6 +112,8 @@ Flags:
   --max-tokens <n>     completion-plafond (default uit dispatch.config.json)
   --threshold <usd>    oranje-licht-drempel per call (default uit config)
   --concurrency <n>    parallel-limiet
+  --eval-sample <n>    online-eval op ~1-op-n calls (default 1 = elke call; cheap DeepSeek-judge)
+  --no-eval            zet de online-eval-hook uit voor deze run
 `;
 
 async function main(): Promise<void> {
@@ -136,7 +144,12 @@ async function main(): Promise<void> {
   const tasks = taskInputs.map((t) => applyVoice(loadTask(t), args.voice));
   const res = resolveModel(table, { seat: args.seat, model: args.model, mode: args.mode });
 
-  console.log(`${args.dryRun ? "DRY-RUN" : "DISPATCH"} — ${tasks.length} taak/taken via ${res.model.label}\n`);
+  // Eén trace-id voor de hele job: zo knopen alle (parallelle) stappen aan elkaar in de span-log.
+  const traceId = newTraceId();
+  const evalCfg = defaultEvalConfig({ enabled: !args.noEval, sampleN: args.evalSample });
+
+  console.log(`${args.dryRun ? "DRY-RUN" : "DISPATCH"} — ${tasks.length} taak/taken via ${res.model.label}`);
+  console.log(`trace: ${traceId}${args.dryRun ? "" : ` · online-eval: ${evalCfg.enabled ? `aan (1-op-${evalCfg.sampleN}, judge ${evalCfg.model})` : "uit"}`}\n`);
 
   const client = args.dryRun ? null : makeClient();
 
@@ -146,7 +159,7 @@ async function main(): Promise<void> {
       res,
       task,
       cfg,
-      { dryRun: args.dryRun, yes: args.yes }
+      { dryRun: args.dryRun, yes: args.yes, traceId, evalCfg }
     );
 
     // Console-feedback
@@ -161,6 +174,10 @@ async function main(): Promise<void> {
       }
     } else {
       console.log(`  ✓ klaar: ${outcome.promptTokens} in / ${outcome.completionTokens} out · ${outcome.latencyMs} ms · ECHTE kosten $${(outcome.costUsd ?? 0).toFixed(6)}`);
+      if (outcome.voice) console.log(`    merkstem : ${outcome.voice} · prompt ${outcome.promptVersion}`);
+      if (outcome.eval) {
+        console.log(`    eval     : ${outcome.eval.score.toFixed(1)}/10 · ${outcome.eval.pass ? "PASS ✓" : "FAIL ✗"}${outcome.eval.motivatie ? ` — ${outcome.eval.motivatie}` : ""}`);
+      }
       if (resultFile) console.log(`    resultaat → ${resultFile}`);
     }
     console.log(`    logregel → ${logFile}\n`);

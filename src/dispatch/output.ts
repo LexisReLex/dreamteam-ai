@@ -44,20 +44,30 @@ export function appendLog(o: DispatchOutcome): string {
   ensureDir();
   const row = {
     timestamp: o.timestamp,
+    traceId: o.traceId,
     taskId: o.taskId,
     taskPath: o.taskPath ?? null,
     seat: o.seat ?? null,
+    voice: o.voice ?? null,
     mode: o.mode,
     model: o.modelId,
     tier: o.tier,
     gate: o.gate,
+    promptVersion: o.promptVersion,
     executed: o.executed,
     blockedReason: o.blockedReason ?? null,
     estCostUsd: Number(o.estimate.estCostUsd.toFixed(6)),
+    // Bestaande velden = spec's tokens_in/tokens_out (niet gedupliceerd, hergebruikt).
     promptTokens: o.promptTokens ?? null,
     completionTokens: o.completionTokens ?? null,
     latencyMs: o.latencyMs ?? null,
     costUsd: o.costUsd != null ? Number(o.costUsd.toFixed(6)) : null,
+    inputHash: o.inputHash,
+    outputHash: o.outputHash ?? null,
+    // Ingevuld door de online-eval-hook (bouwstuk 2); null als niet-gescoord.
+    evalScore: o.eval ? Number(o.eval.score.toFixed(1)) : null,
+    evalPass: o.eval ? o.eval.pass : null,
+    evalMotivatie: o.eval?.motivatie ?? null,
     error: o.error ?? null,
   };
   fs.appendFileSync(LOG_FILE, JSON.stringify(row) + "\n", "utf8");

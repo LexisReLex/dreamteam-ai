@@ -1,5 +1,6 @@
 import type OpenAI from "openai";
 import { estimateTokens, costFromUsage } from "../cost";
+import { newTraceId, promptVersion, inputHash, outputHash } from "./span";
 import type {
   Resolution,
   DispatchTask,
@@ -52,6 +53,7 @@ export function decideGate(
 export interface DispatchOptions {
   dryRun: boolean;
   yes: boolean;
+  traceId?: string; // keten-ID van de job; ontbreekt hij → eigen id per call
 }
 
 // Voert één taak uit (of raamt/stopt). Gooit niet bij API-fouten — vangt ze in de outcome.
@@ -78,6 +80,12 @@ export async function dispatchOne(
     gate,
     estimate: est,
     executed: false,
+    // Span-verrijking (bouwstuk 1): traceId van de job, of eigen id per call.
+    traceId: opts.traceId ?? newTraceId(),
+    voice: task.voice,
+    promptVersion: promptVersion(task.systemBlock),
+    inputHash: inputHash(task.prompt),
+    outputHash: null,
   };
 
   // Dry-run: nooit callen.
@@ -122,6 +130,7 @@ export async function dispatchOne(
       ...base,
       executed: true,
       output,
+      outputHash: outputHash(output),
       latencyMs,
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,

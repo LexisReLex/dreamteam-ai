@@ -11,7 +11,9 @@
     "bench:arms": "tsx src/arms3/index.ts",
     "dispatch": "tsx src/dispatch/cli.ts",
     "serve": "tsx src/dispatch/http.ts",
-    "mcp": "tsx src/mcp/server.ts"
+    "mcp": "tsx src/mcp/server.ts",
+    "panel": "tsx src/panel/build.ts",
+    "drift": "tsx src/dispatch/drift.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

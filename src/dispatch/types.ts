@@ -58,6 +58,14 @@ export interface DispatchTask {
   prompt: string;      // de feitelijke taaktekst (zonder contract-systeemblok)
   contract: Contract;
   systemBlock: string; // contract gevouwen als systeem-/instructieblok
+  voice?: string;      // merkstem-laag (187N stap 1), indien --voice gezet — bron: voice.ts
+}
+
+// Online-eval-uitkomst (bouwstuk 2), teruggeschreven naar dezelfde span.
+export interface SpanEval {
+  score: number;        // 0-10, door de DeepSeek-judge
+  pass: boolean;        // score >= drempel
+  motivatie?: string;   // één zin van de judge
 }
 
 // Kostenraming vóór de call (bovengrens: completion = maxTokens).
@@ -87,6 +95,13 @@ export interface DispatchOutcome {
   completionTokens?: number;
   costUsd?: number;        // ECHTE kosten uit API-usage
   error?: string;
+  // ── Observability Niveau 2 — span-verrijking (bouwstuk 1) ──
+  traceId: string;         // keten-ID; knoopt stappen van één job aan elkaar
+  voice?: string;          // merkstem-laag (POORT-regel), null als geen --voice
+  promptVersion: string;   // content-hash van het systeemblok
+  inputHash: string;       // privacy-veilige hash van de taak-input
+  outputHash?: string | null; // hash van de output (null bij niet-uitgevoerd)
+  eval?: SpanEval;         // ingevuld door bouwstuk 2 (online-eval-hook)
 }
 
 export interface DispatchConfig {

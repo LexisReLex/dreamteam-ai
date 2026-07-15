@@ -22,7 +22,7 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(10, n));
 }
 
-function parseScore(raw: string): JudgeScore {
+export function parseScore(raw: string): JudgeScore {
   const cleaned = raw.replace(/```(?:json)?/gi, "").trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Jury gaf geen JSON terug.");
@@ -38,6 +38,37 @@ function parseScore(raw: string): JudgeScore {
     overall: deriveOverall(sub), // zelf berekend, niet van de jury
     motivatie: typeof p.motivatie === "string" ? p.motivatie : "",
   };
+}
+
+// Herbruikbare judge-kern: één json_object-call + parse, met één retry bij parse-fout.
+// Gedeeld door de benchmark-judge (hieronder) én de online-eval-hook (dispatch/eval.ts),
+// zodat de jury-logica niet gedupliceerd wordt. rubric = systeemprompt, userMsg = de casus.
+export async function judgeWithRubric(
+  client: OpenAI,
+  model: string,
+  rubric: string,
+  userMsg: string,
+  maxTokens = 600
+): Promise<JudgeScore> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resp = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" }, // dwingt geldige JSON af (geen fences/quote-breuk)
+      messages: [
+        { role: "system", content: rubric },
+        { role: "user", content: userMsg },
+      ],
+    });
+    try {
+      return parseScore(resp.choices[0]?.message?.content ?? "");
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 export async function judge(
@@ -60,24 +91,5 @@ export async function judge(
 
   const rubricBlock = task.rubric ? `\n\n## BEOORDELINGSRUBRIEK (verplicht meewegen)\n${task.rubric}` : "";
   const userMsg = `## ROL-SYSTEEMPROMPT\n${role.systemPrompt}\n\n## TAAK\n${task.prompt}${rubricBlock}\n\n## ANTWOORD VAN HET MODEL\n${result.output}`;
-  // Eén retry bij een parse-fout (json_object dekt het meeste af, maar niet altijd).
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const resp = await client.chat.completions.create({
-      model: cfg.judgeModel,
-      temperature: 0,
-      max_tokens: 600,
-      response_format: { type: "json_object" }, // dwingt geldige JSON af (geen fences/quote-breuk)
-      messages: [
-        { role: "system", content: RUBRIC },
-        { role: "user", content: userMsg },
-      ],
-    });
-    try {
-      return parseScore(resp.choices[0]?.message?.content ?? "");
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr;
+  return judgeWithRubric(client, cfg.judgeModel, RUBRIC, userMsg);
 }

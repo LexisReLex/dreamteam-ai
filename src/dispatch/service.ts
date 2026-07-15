@@ -8,6 +8,8 @@ import { parseContract, buildSystemBlock } from "./contract";
 import { applyVoice } from "./voice";
 import { estimate, decideGate, dispatchOne } from "./core";
 import { writeResultFile, appendLog } from "./output";
+import { evalOutcome, defaultEvalConfig, type EvalConfig } from "./eval";
+import { newTraceId } from "./span";
 import type {
   DispatchConfig,
   DispatchTask,
@@ -90,23 +92,32 @@ export interface DispatchIOResult {
 }
 
 // Voert één taak uit (of raamt/stopt) en schrijft resultaat + logregel. Gedeeld door CLI en MCP.
+// De online-eval-hook draait NÁ de call en VÓÓR appendLog, zodat eval_score/eval_pass op
+// dezelfde span-regel belanden. Cheap judge = auto; geen extra oranje licht.
 export async function dispatchTaskWithIO(
   client: ReturnType<typeof makeClient> | null,
   res: Resolution,
   task: DispatchTask,
   cfg: DispatchConfig,
-  opts: { dryRun: boolean; yes: boolean }
+  opts: { dryRun: boolean; yes: boolean; traceId?: string; evalCfg?: EvalConfig }
 ): Promise<DispatchIOResult> {
   const outcome = await dispatchOne(
     client as ReturnType<typeof makeClient>,
     res,
     task,
     cfg,
-    opts
+    { dryRun: opts.dryRun, yes: opts.yes, traceId: opts.traceId }
   );
-  const resultFile = writeResultFile(outcome);
-  const logFile = appendLog(outcome);
-  return { outcome, resultFile, logFile };
+  // Online-eval: alleen bij een echte call met output en een levende client.
+  const evalCfg = opts.evalCfg ?? defaultEvalConfig();
+  const span =
+    client && evalCfg.enabled && outcome.executed && outcome.output && !outcome.error
+      ? await evalOutcome(client, outcome, task, evalCfg)
+      : null;
+  const enriched = span ? { ...outcome, eval: span } : outcome;
+  const resultFile = writeResultFile(enriched);
+  const logFile = appendLog(enriched);
+  return { outcome: enriched, resultFile, logFile };
 }
 
 export interface RunOneParams extends ResolveParams, ConfigOverrides {
@@ -114,6 +125,8 @@ export interface RunOneParams extends ResolveParams, ConfigOverrides {
   voice?: string;
   confirmPremium?: boolean;
   dryRun?: boolean;
+  traceId?: string;
+  evalCfg?: EvalConfig;
 }
 
 // Volledige enkelvoudige dispatch — gebruikt door de MCP-tools dispatch_run en dispatch_estimate.
@@ -127,6 +140,8 @@ export async function runOne(p: RunOneParams): Promise<DispatchIOResult> {
   return dispatchTaskWithIO(client, res, task, cfg, {
     dryRun,
     yes: p.confirmPremium === true,
+    traceId: p.traceId ?? newTraceId(),
+    evalCfg: p.evalCfg ?? defaultEvalConfig(),
   });
 }
 
