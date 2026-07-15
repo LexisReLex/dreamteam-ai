@@ -18,6 +18,10 @@ PORT="${DISPATCH_HTTP_PORT:-8787}"
 WINDOW_SECONDS="${WINDOW_SECONDS:-1800}"        # 30 min
 TUNNEL_NAME="${TUNNEL_NAME:-dispatch-mac}"
 CF_CONFIG="$REPO/deploy/cloudflared/config.yml"
+
+# Optioneel token voor een dashboard-managed tunnel (route B, cert-loos).
+# Leg CF_TUNNEL_TOKEN=... in deploy/tunnel.env (gitignored) als je die route kiest.
+[ -f "$REPO/deploy/tunnel.env" ] && . "$REPO/deploy/tunnel.env"
 LOG_DIR="$REPO/out/dispatch"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/window.log"
@@ -63,8 +67,13 @@ for i in $(seq 1 15); do
   fi
 done
 
-log "tunnel '$TUNNEL_NAME' starten"
-cloudflared tunnel --config "$CF_CONFIG" run "$TUNNEL_NAME" >>"$LOG" 2>&1 &
+if [ -n "${CF_TUNNEL_TOKEN:-}" ]; then
+  log "tunnel starten via dashboard-token (route B, cert-loos)"
+  cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" >>"$LOG" 2>&1 &
+else
+  log "tunnel '$TUNNEL_NAME' starten via config.yml (route A, cert-based)"
+  cloudflared tunnel --config "$CF_CONFIG" run "$TUNNEL_NAME" >>"$LOG" 2>&1 &
+fi
 TUNNEL_PID=$!
 log "tunnel gestart (pid $TUNNEL_PID) — venster $WINDOW_SECONDS s open"
 
