@@ -9,3 +9,4 @@ out/
 # Lokale/zware artefacten (26 jun) — niet committen
 vendor/
 graphify-out/
+.gstack/

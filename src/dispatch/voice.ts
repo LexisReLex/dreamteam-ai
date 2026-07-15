@@ -29,5 +29,6 @@ export function applyVoice(task: DispatchTask, voice?: string): DispatchTask {
   const voiceText = fs.readFileSync(file, "utf8").trim();
   const block = `─── MERKSTEM: ${voice} ───\n${voiceText}`;
   const systemBlock = task.systemBlock ? `${block}\n\n${task.systemBlock}` : block;
-  return { ...task, systemBlock };
+  // De merkstem als vast span-veld meenemen zodat paneel + eval per stem kunnen splitsen.
+  return { ...task, systemBlock, voice };
 }
