@@ -10,6 +10,7 @@ import Agents from "@/pages/Agents";
 import AgentDetail from "@/pages/AgentDetail";
 import Tasks from "@/pages/Tasks";
 import Loops from "@/pages/Loops";
+import Scans from "@/pages/Scans";
 import Settings from "@/pages/Settings";
 import Landing from "@/pages/Landing";
 import Pricing from "@/pages/Pricing";
@@ -81,6 +82,7 @@ function AppRoutes() {
           <Route path="/agent/:id" component={AgentDetail} />
           <Route path="/tasks" component={Tasks} />
           <Route path="/loops" component={Loops} />
+          <Route path="/scans" component={Scans} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>

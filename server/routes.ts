@@ -1,11 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
+import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema, LOOP_LEVELS } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
+import { runScan } from "./scans";
 import { accessGuard } from "./security";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
@@ -335,6 +336,77 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
     if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
     res.json(storage.getLoopRuns(id, 20));
+  });
+
+  // ─── Team Scans (Strix — graph of agents) ───────────────────────────────────
+
+  function scanWithAgents(scan: ReturnType<typeof storage.getScan>) {
+    if (!scan) return scan;
+    let ids: number[] = [];
+    try { ids = JSON.parse(scan.agentIds); } catch { ids = []; }
+    const agents = ids.map((id) => storage.getAgent(id)).filter((a): a is NonNullable<typeof a> => !!a);
+    return { ...scan, agents };
+  }
+
+  const createScanSchema = z.object({
+    name: z.string().min(1).max(80),
+    target: z.string().min(1).max(2000),
+    scope: z.string().max(1000).optional().default(""),
+    agentIds: z.array(z.number().int()).min(1, "Kies minstens één agent").max(6, "Maximaal 6 agents per scan"),
+    level: z.enum(LOOP_LEVELS).optional().default("L1"),
+  });
+
+  // GET /api/scans
+  app.get("/api/scans", (req, res) => {
+    res.json(storage.getScans().map((s) => scanWithAgents(s)));
+  });
+
+  // GET /api/scans/:id  (met bevindingen)
+  app.get("/api/scans/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig scan ID" });
+    const scan = storage.getScan(id);
+    if (!scan) return res.status(404).json({ error: "Scan niet gevonden" });
+    res.json({ ...scanWithAgents(scan), findings: storage.getFindings(id) });
+  });
+
+  // POST /api/scans
+  app.post("/api/scans", (req, res) => {
+    const result = createScanSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.flatten() });
+
+    const validIds = result.data.agentIds.filter((id) => storage.getAgent(id));
+    if (validIds.length === 0) return res.status(400).json({ error: "Geen geldige agents opgegeven" });
+
+    const scan = storage.createScan({
+      name: result.data.name,
+      target: result.data.target,
+      scope: result.data.scope ?? "",
+      agentIds: JSON.stringify(validIds),
+      level: result.data.level ?? "L1",
+    });
+    res.status(201).json(scanWithAgents(scan));
+  });
+
+  // DELETE /api/scans/:id
+  app.delete("/api/scans/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig scan ID" });
+    if (!storage.getScan(id)) return res.status(404).json({ error: "Scan niet gevonden" });
+    storage.deleteScan(id);
+    res.status(204).end();
+  });
+
+  // POST /api/scans/:id/run — draai de scan nu (rate limited: 6/min per IP — duur)
+  app.post("/api/scans/:id/run", guard, rateLimit(6, 60 * 1000), async (req, res) => {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig scan ID" });
+    const scan = storage.getScan(id);
+    if (!scan) return res.status(404).json({ error: "Scan niet gevonden" });
+
+    const done = await runScan(scan);
+    if (!done) return res.status(409).json({ error: "Deze scan draait al. Wacht tot de huidige run klaar is." });
+    res.json({ ...scanWithAgents(storage.getScan(id)), findings: storage.getFindings(id) });
   });
 
   // GET /api/budget — huidige token-budgetstatus (governance)
