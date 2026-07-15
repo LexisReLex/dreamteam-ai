@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: opent het dispatch-venster één keer per dag, net vóór de run.
+  RunAtLoad=false + geen KeepAlive → draait alléén op de kalendertijd, en de
+  wrapper stopt zichzelf (en tunnel + endpoint) na 30 min.
+
+  VUL IN <START_HOUR>/<START_MIN> = run-tijd van workflow Mr4j7huAH2vu1SrA
+  MINUS 10 min (bv. run 08:00 -> 07:50). Zie SETUP.md.
+
+  Installeren:  cp deploy/com.lexxy.dispatch-window.plist ~/Library/LaunchAgents/
+                launchctl load ~/Library/LaunchAgents/com.lexxy.dispatch-window.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lexxy.dispatch-window</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/lex/Documents/Claude/Claude Code/dreamteam-benchmark/deploy/dispatch-window.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/lex/Documents/Claude/Claude Code/dreamteam-benchmark</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer><START_HOUR></integer>
+    <key>Minute</key>
+    <integer><START_MIN></integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/lex/Documents/Claude/Claude Code/dreamteam-benchmark/out/dispatch/launchd-window.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lex/Documents/Claude/Claude Code/dreamteam-benchmark/out/dispatch/launchd-window.log</string>
+</dict>
+</plist>
