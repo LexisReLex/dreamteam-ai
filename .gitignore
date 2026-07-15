@@ -1,7 +1,10 @@
 node_modules/
 .env
+.env.*
+!.env.example
 out/
 *.log
+*.bak
 
 # Lokale/zware artefacten (26 jun) — niet committen
 vendor/
