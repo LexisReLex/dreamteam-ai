@@ -29,6 +29,7 @@ interface DispatchBody {
   model?: string;
   mode?: Mode;
   task?: string; // inline taaktekst (incl. contract-labels) of bestandspad
+  voice?: string; // merkstem-laag (B): lexxy|degroot|klanttijd|persoonlijk — leeg = geen stem
   dryRun?: boolean;
   confirmPremium?: boolean;
 }
@@ -89,6 +90,7 @@ const server = http.createServer(async (req, res) => {
       model: body.model,
       mode: body.mode,
       task: body.task,
+      voice: body.voice,
       dryRun: body.dryRun === true,
       confirmPremium: body.confirmPremium === true,
     });
@@ -98,6 +100,9 @@ const server = http.createServer(async (req, res) => {
       blockedReason: outcome.blockedReason ?? null,
       model: outcome.modelId,
       tier: outcome.tier,
+      voice: outcome.voice ?? null,
+      traceId: outcome.traceId,
+      evalScore: outcome.eval?.score ?? null,
       output: outcome.output ?? null,
       costUsd: outcome.costUsd ?? null,
       estCostUsd: outcome.estimate.estCostUsd,
