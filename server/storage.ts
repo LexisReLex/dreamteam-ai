@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, Scan, Finding, InsertFinding } from "@shared/schema";
 
 // Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
 // persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
@@ -91,6 +91,37 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    target TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT '',
+    agent_ids TEXT NOT NULL DEFAULT '[]',
+    level TEXT NOT NULL DEFAULT 'L1',
+    status TEXT NOT NULL DEFAULT 'pending',
+    risk_score INTEGER,
+    risk_band TEXT,
+    summary TEXT NOT NULL DEFAULT '',
+    confirmed_count INTEGER NOT NULL DEFAULT 0,
+    rejected_count INTEGER NOT NULL DEFAULT 0,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id INTEGER NOT NULL,
+    agent_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'info',
+    evidence TEXT NOT NULL DEFAULT '',
+    impact TEXT NOT NULL DEFAULT '',
+    remediation TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
 `);
 
 // Safe migration: add language column if not exists
@@ -129,6 +160,18 @@ export interface IStorage {
   // Loop runs
   getLoopRuns(loopId: number, limit?: number): LoopRun[];
   createLoopRun(data: InsertLoopRun): LoopRun;
+
+  // Scans
+  getScans(): Scan[];
+  getScan(id: number): Scan | undefined;
+  createScan(data: { name: string; target: string; scope: string; agentIds: string; level: Scan["level"] }): Scan;
+  updateScan(id: number, data: Partial<Scan>): Scan | undefined;
+  deleteScan(id: number): void;
+
+  // Findings
+  getFindings(scanId: number): Finding[];
+  createFinding(data: InsertFinding): Finding;
+  replaceFindings(scanId: number, findings: InsertFinding[]): void;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -250,6 +293,54 @@ export class Storage implements IStorage {
   createLoopRun(data: InsertLoopRun): LoopRun {
     const now = new Date().toISOString();
     return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Scans ──────────────────────────────────────────────────────────────────
+  getScans(): Scan[] {
+    return db.select().from(schema.scans).all().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  getScan(id: number): Scan | undefined {
+    return db.select().from(schema.scans).where(eq(schema.scans.id, id)).get();
+  }
+
+  createScan(data: { name: string; target: string; scope: string; agentIds: string; level: Scan["level"] }): Scan {
+    const now = new Date().toISOString();
+    return db.insert(schema.scans).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  updateScan(id: number, data: Partial<Scan>): Scan | undefined {
+    const { id: _ignore, ...rest } = data;
+    if (Object.keys(rest).length > 0) {
+      db.update(schema.scans).set(rest).where(eq(schema.scans.id, id)).run();
+    }
+    return this.getScan(id);
+  }
+
+  deleteScan(id: number): void {
+    db.delete(schema.findings).where(eq(schema.findings.scanId, id)).run();
+    db.delete(schema.scans).where(eq(schema.scans.id, id)).run();
+  }
+
+  // ─── Findings ───────────────────────────────────────────────────────────────
+  getFindings(scanId: number): Finding[] {
+    return db.select().from(schema.findings).where(eq(schema.findings.scanId, scanId)).all();
+  }
+
+  createFinding(data: InsertFinding): Finding {
+    const now = new Date().toISOString();
+    return db.insert(schema.findings).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // Vervangt alle bevindingen van een scan atomair (een scan-run herschrijft het rapport).
+  replaceFindings(scanId: number, items: InsertFinding[]): void {
+    const now = new Date().toISOString();
+    db.transaction((tx) => {
+      tx.delete(schema.findings).where(eq(schema.findings.scanId, scanId)).run();
+      for (const row of items) {
+        tx.insert(schema.findings).values({ ...row, createdAt: now }).run();
+      }
+    });
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {

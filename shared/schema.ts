@@ -112,3 +112,63 @@ export const loopRuns = sqliteTable("loop_runs", {
 export const insertLoopRunSchema = createInsertSchema(loopRuns).omit({ id: true, createdAt: true });
 export type InsertLoopRun = z.infer<typeof insertLoopRunSchema>;
 export type LoopRun = typeof loopRuns.$inferSelect;
+
+// ─── Team Scans (Strix — graph of agents) ─────────────────────────────────────
+// Een scan is een assessment door meerdere agents tegelijk (de "graph of agents"):
+// verkenning (elke agent zoekt bevindingen in zijn domein) → validatie (een
+// onafhankelijke Validator bevestigt elke bevinding met bewijs of verwerpt hem als
+// false positive) → rapport (bevestigde bevindingen, severity + risicoscore + fix).
+export const SCAN_STATUSES = ["pending", "running", "completed", "failed"] as const;
+// L1/L2/L3 gefaseerde uitrol — gedeeld met de loops (LOOP_LEVELS).
+export const SEVERITIES = ["kritiek", "hoog", "middel", "laag", "info"] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+export const scans = sqliteTable("scans", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  target: text("target").notNull(),
+  scope: text("scope").notNull().default(""),
+  // JSON-array van agent-id's (de "graph of agents" die meedoet aan deze scan).
+  agentIds: text("agent_ids").notNull().default("[]"),
+  level: text("level", { enum: LOOP_LEVELS }).notNull().default("L1"),
+  status: text("status", { enum: SCAN_STATUSES }).notNull().default("pending"),
+  riskScore: integer("risk_score"),
+  riskBand: text("risk_band", { enum: [...SEVERITIES, "schoon"] as const }),
+  summary: text("summary").notNull().default(""),
+  confirmedCount: integer("confirmed_count").notNull().default(0),
+  rejectedCount: integer("rejected_count").notNull().default(0),
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  completedAt: text("completed_at"),
+});
+
+export const insertScanSchema = createInsertSchema(scans)
+  .omit({
+    id: true, status: true, riskScore: true, riskBand: true, summary: true,
+    confirmedCount: true, rejectedCount: true, tokensUsed: true, createdAt: true, completedAt: true,
+  })
+  .extend({
+    name: z.string().min(1).max(80),
+    target: z.string().min(1).max(2000),
+  });
+export type InsertScan = z.infer<typeof insertScanSchema>;
+export type Scan = typeof scans.$inferSelect;
+
+// Bevindingen — het gevalideerde resultaat van een scan (alleen bevestigde,
+// géén false positives). Elke bevinding draagt bewijs, impact en een aanbevolen fix.
+export const findings = sqliteTable("findings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scanId: integer("scan_id").notNull(),
+  agentId: integer("agent_id").notNull(),
+  title: text("title").notNull(),
+  category: text("category").notNull().default(""),
+  severity: text("severity", { enum: SEVERITIES }).notNull().default("info"),
+  evidence: text("evidence").notNull().default(""),
+  impact: text("impact").notNull().default(""),
+  remediation: text("remediation").notNull().default(""),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const insertFindingSchema = createInsertSchema(findings).omit({ id: true, createdAt: true });
+export type InsertFinding = z.infer<typeof insertFindingSchema>;
+export type Finding = typeof findings.$inferSelect;
