@@ -8,6 +8,7 @@ import {
   resolveModel,
   dispatchTaskWithIO,
 } from "./service";
+import { applyVoice } from "./voice";
 import type { DispatchTask, Estimate, Mode, Resolution } from "./types";
 
 interface Args {
@@ -15,6 +16,7 @@ interface Args {
   mode: Mode;
   model?: string;
   task?: string;
+  voice?: string;
   parallel: string[];
   dryRun: boolean;
   yes: boolean;
@@ -38,6 +40,7 @@ function parseArgs(argv: string[]): Args {
       case "--fallback": a.mode = "quality"; break;
       case "--model": a.model = next(); break;
       case "--task": a.task = next(); break;
+      case "--voice": a.voice = next(); break;
       case "--parallel":
         // verzamel alle volgende non-flag tokens (shell-expanded glob), of één glob-patroon
         while (i + 1 < argv.length && !argv[i + 1].startsWith("--")) a.parallel.push(argv[++i]);
@@ -95,6 +98,7 @@ Flags:
   --mode <m>           default | draft | quality   (of: --draft, --quality/--fallback)
   --model <slug>       expliciet model; omzeilt seat-keuze (moet in routing-JSON staan)
   --task <pad|tekst>   taakbestand (.md/.json/.txt) of inline tekst
+  --voice <niche>      merkstem-laag: lexxy | degroot | klanttijd | persoonlijk (optioneel)
   --parallel <paden>   meerdere taken tegelijk (glob of lijst paden)
   --dry-run            kies model + toon kostenraming, CALL NIET
   --yes                bevestig premium/dure run (oranje licht passeren)
@@ -129,7 +133,7 @@ async function main(): Promise<void> {
     throw new Error("Geef --task <pad|tekst> of --parallel <paden>. Zie --help.");
   }
 
-  const tasks = taskInputs.map(loadTask);
+  const tasks = taskInputs.map((t) => applyVoice(loadTask(t), args.voice));
   const res = resolveModel(table, { seat: args.seat, model: args.model, mode: args.mode });
 
   console.log(`${args.dryRun ? "DRY-RUN" : "DISPATCH"} — ${tasks.length} taak/taken via ${res.model.label}\n`);

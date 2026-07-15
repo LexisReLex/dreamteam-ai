@@ -5,6 +5,7 @@ import { makeClient } from "../openrouter";
 import { loadDispatchConfig } from "./config";
 import { loadRouting, resolveSeat, resolveExplicit } from "./routing";
 import { parseContract, buildSystemBlock } from "./contract";
+import { applyVoice } from "./voice";
 import { estimate, decideGate, dispatchOne } from "./core";
 import { writeResultFile, appendLog } from "./output";
 import type {
@@ -110,6 +111,7 @@ export async function dispatchTaskWithIO(
 
 export interface RunOneParams extends ResolveParams, ConfigOverrides {
   task: string;
+  voice?: string;
   confirmPremium?: boolean;
   dryRun?: boolean;
 }
@@ -119,7 +121,7 @@ export async function runOne(p: RunOneParams): Promise<DispatchIOResult> {
   const cfg = buildConfig(p);
   const table = loadRouting(cfg.routingPath);
   const res = resolveModel(table, p);
-  const task = loadTask(p.task);
+  const task = applyVoice(loadTask(p.task), p.voice);
   const dryRun = p.dryRun === true;
   const client = dryRun ? null : makeClient();
   return dispatchTaskWithIO(client, res, task, cfg, {
@@ -198,7 +200,7 @@ export function estimateText(p: RunOneParams): {
   const cfg = buildConfig(p);
   const table = loadRouting(cfg.routingPath);
   const res = resolveModel(table, p);
-  const task = loadTask(p.task);
+  const task = applyVoice(loadTask(p.task), p.voice);
   const { estimate: est } = estimate(res, task, cfg);
   const gate = decideGate(res, est, cfg).gate;
   return { res, task, estimate: est, gate };

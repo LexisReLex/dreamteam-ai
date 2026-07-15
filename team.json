@@ -1,0 +1,62 @@
+{
+  "_note": "187N stap 1 — één merkstem-team. Eén bron van waarheid: modellen komen LIVE uit de router (models-routing.json), niet hier gedupliceerd. Dit manifest koppelt de 6 sub-agents aan hun dispatch-seat en de merkstem-laag (--voice).",
+  "version": 1,
+  "modelSource": "/Users/lex/Library/Mobile Documents/com~apple~CloudDocs/LXY-Vault/00-System/skills/model-router/models-routing.json",
+  "voices": ["lexxy", "degroot", "klanttijd", "persoonlijk"],
+  "voicesDir": "brand-voices/",
+  "seats": {
+    "copywriter": "consistentie-eerst (klantgerichte output)",
+    "klantenservice": "consistentie-eerst (klantgerichte output)",
+    "research": "kosten-eerst, kwaliteit-fallback"
+  },
+  "roles": [
+    {
+      "role": "tekstschrijver-nl",
+      "source": "~/.claude/agents/tekstschrijver-nl.md",
+      "seat": "copywriter",
+      "appliesVoice": true,
+      "defaultVoice": "persoonlijk",
+      "note": "Copy per niche — primaire afnemer van de merkstem-laag."
+    },
+    {
+      "role": "onderzoeker",
+      "source": "~/.claude/agents/onderzoeker.md",
+      "seat": "research",
+      "appliesVoice": true,
+      "defaultVoice": null,
+      "note": "Web-research; stem alleen relevant als de output klantgericht wordt afgeleverd."
+    },
+    {
+      "role": "code-reviewer",
+      "source": "~/.claude/agents/code-reviewer.md",
+      "seat": "research",
+      "appliesVoice": false,
+      "defaultVoice": null,
+      "note": "Interne engineering-rol; merkstem niet van toepassing. AANNAME: geen eigen seat → research (kosten-eerst, kwaliteit-fallback)."
+    },
+    {
+      "role": "security-wachter",
+      "source": "~/.claude/agents/security-wachter.md",
+      "seat": "research",
+      "appliesVoice": false,
+      "defaultVoice": null,
+      "note": "Interne engineering-rol; merkstem niet van toepassing. AANNAME: geen eigen seat → research."
+    },
+    {
+      "role": "boekings-qa",
+      "source": "~/.claude/agents/boekings-qa.md",
+      "seat": "research",
+      "appliesVoice": false,
+      "defaultVoice": null,
+      "note": "Interne QA-rol; merkstem niet van toepassing. AANNAME: geen eigen seat → research."
+    },
+    {
+      "role": "architect",
+      "source": "~/.claude/agents/architect.md",
+      "seat": "research",
+      "appliesVoice": false,
+      "defaultVoice": null,
+      "note": "Spec/plan-rol; merkstem niet van toepassing. AANNAME: geen eigen seat → research."
+    }
+  ]
+}

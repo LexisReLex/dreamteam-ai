@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runOne, estimateText, listSeats } from "../dispatch/service";
+import { VOICES } from "../dispatch/voice";
 import type { Mode } from "../dispatch/types";
 
 // Fase 2b — MCP-wrapper rond de fase 2 dispatch-core.
@@ -33,6 +34,7 @@ const registerTool = (
 
 const seatEnum = z.enum(["copywriter", "klantenservice", "research"]);
 const modeEnum = z.enum(["default", "draft", "quality"]);
+const voiceEnum = z.enum(VOICES);
 
 function eur(usd: number): string {
   return (usd * 0.92).toFixed(4);
@@ -56,6 +58,7 @@ registerTool(
       model: z.string().optional().describe("expliciete model-slug; omzeilt de seat-keuze"),
       mode: modeEnum.optional().describe("default | draft | quality (default = default)"),
       task: z.string().describe("taaktekst (inline) of pad naar een taakbestand (.md/.json/.txt)"),
+      voice: voiceEnum.optional().describe("merkstem-laag: lexxy | degroot | klanttijd | persoonlijk (optioneel)"),
       confirm_premium: z
         .boolean()
         .optional()
@@ -63,11 +66,12 @@ registerTool(
     },
   },
   async (args) => {
-    const { seat, model, mode, task, confirm_premium } = args as {
+    const { seat, model, mode, task, voice, confirm_premium } = args as {
       seat?: string;
       model?: string;
       mode?: string;
       task: string;
+      voice?: string;
       confirm_premium?: boolean;
     };
     try {
@@ -76,6 +80,7 @@ registerTool(
         model,
         mode: mode as Mode | undefined,
         task,
+        voice,
         confirmPremium: confirm_premium === true,
       });
 
@@ -119,14 +124,16 @@ registerTool(
       model: z.string().optional(),
       mode: modeEnum.optional(),
       task: z.string().describe("taaktekst (inline) of pad naar een taakbestand"),
+      voice: voiceEnum.optional().describe("merkstem-laag: lexxy | degroot | klanttijd | persoonlijk (optioneel)"),
     },
   },
   async (args) => {
-    const { seat, model, mode, task } = args as {
+    const { seat, model, mode, task, voice } = args as {
       seat?: string;
       model?: string;
       mode?: string;
       task: string;
+      voice?: string;
     };
     try {
       const { res, estimate, gate } = estimateText({
@@ -134,6 +141,7 @@ registerTool(
         model,
         mode: mode as Mode | undefined,
         task,
+        voice,
       });
       return textResult(
         `DRY-RUN (geen call)\n` +
