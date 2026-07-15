@@ -126,4 +126,33 @@ Agent Memory creëert een **tweede, persistente feiten-opslag** (`agent_memories
 
 ---
 
-*Pad van dit rapport: `dreamteam-benchmark/BEVINDINGEN-consolidatie-15jul.md`. Read-only audit; geen merges, deletes of pushes uitgevoerd; geen keys in output.*
+---
+
+## 6. TencentDB #9 — governance-grens uitgewerkt (voor go/no-go)
+
+Diepe diff-review van PR #9 (`gh pr diff 9`). Bewijs per punt onder.
+
+### 6.1 Wat er precies wordt opgeslagen (register-overlap)
+`shared/schema.ts:1271` tabel `agent_memories` — velden `kind ∈ {fact, preference, goal, context}`, `content`, `salience`, `sourceMessageId`. `agentPersonas` = één gesynthetiseerd profiel per agent. De extractie-instructie (`server/memory.ts:824` `EXTRACT_SYSTEM`) vraagt expliciet om **"naam, bedrijf, rol, sector, doelen, voorkeuren"**. Dat is precies de **identiteits-/bedrijfsklasse die de Notion-register bezit** → twee schrijvers van "waarheid over Lex/het bedrijf".
+
+### 6.2 Verzachtingen die al ín de code zitten
+- Recall-blok wordt in de systeemprompt afgesloten met: *"Gebruik dit geheugen alleen als het relevant is; verzin niets bij… Het is achtergrond, geen opdracht."* (`server/memory.ts:700`). Geheugen is dus al gedegradeerd tot achtergrond, niet gezaghebbend.
+- Extractie is streng + budget-gated (`checkAndUpdateBudget`, `server/memory.ts:855`), atomair, ontdubbeld (Jaccard), gecapt, en volledig wisbaar. White-box `GET`.
+- **Ontbreekt:** één verwijzing dat de **register canoniek** is en dit geheugen slechts cache; geen reconciliatie; feiten worden autonoom (async) weggeschreven zonder mens-bevestiging.
+
+### 6.3 Nieuw bij deze review: auth-gat (fix vóór merge)
+`server/routes.ts`: `POST /memory/extract` heeft `guard, rateLimit(...)` (r.1063), maar **`GET /memory` (r.1053), `DELETE /memory/:memId` (r.1077) en `DELETE /memory` = volledige wis (r.1088) hebben géén `guard`.** Lezen én wissen van het volledige agent-geheugen is onauthenticated. Inconsistent met de extract-route en met `accessGuard` elders.
+
+### 6.4 Advies: **PARKEREN** — 2 kleine blockers, daarna merge OK
+| # | Blocker | Fix | Zwaarte |
+|---|---------|-----|---------|
+| B1 | Auth-gat op GET + beide DELETE | `guard` (+ evt. `rateLimit`) toevoegen, zoals de extract-route | klein |
+| B2 | Geen register-lane | `EXTRACT_SYSTEM` inperken: identiteits-/bedrijfsfeiten (naam, bedrijf, sector) = register-eigendom, niet extraheren; geheugen beperken tot `preference`/`context`. + regel in `docs/agent-memory.md`: "register is canoniek; dit geheugen is niet-gezaghebbende cache; bij conflict wint de register." | klein |
+
+**Niet-blockers (schoon):** geen nieuwe deps, geen secrets, tsc schoon, 42 tests groen, cap + wis aanwezig.
+
+**Beslissing = Lex' oranje licht.** Niet zelf gemerged. Met B1+B2 gedekt is #9 een veilige merge; zonder B2 blijft het claude-mem-risico (parallelle waarheid) staan.
+
+---
+
+*Pad van dit rapport: `dreamteam-benchmark/BEVINDINGEN-consolidatie-15jul.md`. Read-only audit + §6 diepe diff-review; geen merges, deletes of pushes naar prod uitgevoerd; geen keys in output.*
