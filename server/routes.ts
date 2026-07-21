@@ -7,6 +7,7 @@ import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
+import { fetchAndAnalyze, SeoError } from "./seo";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -44,7 +45,7 @@ const SEED_AGENTS = [
   { name: "Nova", role: "Marketing Strateeg", description: "Nova is je go-to marketingexpert. Ze ontwikkelt gerichte campagnes, analyseert marktkansen en helpt je merk sterker te positioneren.", avatarColor: "#3b82f6", avatarIcon: "Megaphone", specialty: "Campagnestrategie & merkpositionering", status: "active" as const, tasksCompleted: 12, category: "marketing" },
   { name: "Rex", role: "Sales Coach", description: "Rex is een doorgewinterde salesstrateeg. Hij helpt je pipeline te optimaliseren, bezwaren te overwinnen en meer deals te sluiten.", avatarColor: "#8b5cf6", avatarIcon: "TrendingUp", specialty: "Pipeline optimalisatie & deal closing", status: "busy" as const, tasksCompleted: 8, category: "sales" },
   { name: "Mira", role: "Content Creator", description: "Mira maakt content die echt resoneert. Van blogs tot video-scripts, ze weet hoe ze jouw verhaal boeiend vertelt.", avatarColor: "#06b6d4", avatarIcon: "PenTool", specialty: "Storytelling & content strategie", status: "active" as const, tasksCompleted: 21, category: "content" },
-  { name: "Kai", role: "SEO Specialist", description: "Kai zorgt ervoor dat je gevonden wordt. Met diepgaande keyword-analyses en technische SEO brengt hij organisch verkeer naar je website.", avatarColor: "#22c55e", avatarIcon: "Search", specialty: "Keyword research & technische SEO", status: "idle" as const, tasksCompleted: 5, category: "marketing" },
+  { name: "Kai", role: "SEO Specialist", description: "Kai zorgt ervoor dat je gevonden wordt. Hij draait volledige SEO-audits (technical, content/E-E-A-T, schema, Core Web Vitals, GEO/AI-search) en levert een geprioriteerd actieplan. Kai kan live een URL scannen met de ingebouwde SEO-audit.", avatarColor: "#22c55e", avatarIcon: "Search", specialty: "SEO-audits, technische SEO & AI-search (GEO)", status: "idle" as const, tasksCompleted: 5, category: "marketing" },
   { name: "Zara", role: "Klantenservice", description: "Zara zet klanten centraal. Ze bouwt klantenservice-systemen, schrijft FAQ's en zorgt voor een uitstekende klantbeleving.", avatarColor: "#f97316", avatarIcon: "Headphones", specialty: "Klanttevredenheid & support processen", status: "active" as const, tasksCompleted: 16, category: "support" },
   { name: "Finn", role: "Financieel Adviseur", description: "Finn houdt je financiën scherp. Van cashflowprognoses tot investeringsadvies, hij geeft je financieel inzicht en rust.", avatarColor: "#eab308", avatarIcon: "BarChart2", specialty: "Cashflow management & financiële strategie", status: "idle" as const, tasksCompleted: 3, category: "finance" },
   { name: "Luna", role: "Social Media Manager", description: "Luna beheerst de kunst van social media. Ze bouwt communities, creëert viral content en vergroot je online aanwezigheid.", avatarColor: "#ec4899", avatarIcon: "Share2", specialty: "Community building & social strategie", status: "busy" as const, tasksCompleted: 19, category: "content" },
@@ -340,6 +341,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/budget — huidige token-budgetstatus (governance)
   app.get("/api/budget", (req, res) => {
     res.json(getBudgetStatus());
+  });
+
+  // ─── SEO-audit (keyless technische analyzer) ────────────────────────────────
+  // POST /api/seo/analyze { url } — haalt de pagina SSRF-veilig op en geeft een
+  // gescoord SEO-rapport terug. Guarded + rate-limited (dure outbound fetch).
+  const seoAnalyzeSchema = z.object({ url: z.string().min(1).max(2048) });
+  app.post("/api/seo/analyze", guard, rateLimit(10, 60 * 1000), async (req, res) => {
+    const result = seoAnalyzeSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "Geef een geldige URL op." });
+    try {
+      const report = await fetchAndAnalyze(result.data.url);
+      res.json(report);
+    } catch (err: any) {
+      if (err instanceof SeoError) {
+        const status = err.code === "UNSAFE_URL" ? 400 : 502;
+        return res.status(status).json({ error: err.message });
+      }
+      console.error("SEO-analyse fout:", err?.message || err);
+      res.status(500).json({ error: "SEO-analyse mislukt. Probeer een andere URL." });
+    }
   });
 
   // Start de in-proces loop-scheduler.

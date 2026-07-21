@@ -5,6 +5,7 @@ import { ArrowLeft, Send, CheckCircle, Clock, AlertCircle, Loader2, Zap } from "
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { getLucideIcon } from "@/lib/icons";
+import SeoAuditPanel from "@/components/SeoAuditPanel";
 import type { Agent, Message, Task } from "@shared/schema";
 import { useLanguage } from "@/lib/LanguageContext";
 
@@ -157,6 +158,9 @@ export default function AgentDetail() {
             ))}
           </div>
         </div>
+
+        {/* SEO-audit — alleen voor Kai (SEO Specialist) */}
+        {agentId === 4 && <SeoAuditPanel />}
 
         {/* Task history */}
         <div>
