@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { getLucideIcon } from "@/lib/icons";
 import SeoAuditPanel from "@/components/SeoAuditPanel";
+import ModelRoutingPanel from "@/components/ModelRoutingPanel";
 import type { Agent, Message, Task } from "@shared/schema";
 import { useLanguage } from "@/lib/LanguageContext";
 
@@ -158,6 +159,9 @@ export default function AgentDetail() {
             ))}
           </div>
         </div>
+
+        {/* Slimme model-routing — welke gratis provider past bij deze agent */}
+        {agentId > 0 && <ModelRoutingPanel agentId={agentId} />}
 
         {/* SEO-audit — alleen voor Kai (SEO Specialist) */}
         {agentId === 4 && <SeoAuditPanel />}

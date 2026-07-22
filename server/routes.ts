@@ -10,6 +10,7 @@ import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
+import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -381,6 +382,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Statische, geverifieerde momentopname (zie shared/freeLlmProviders.ts).
   app.get("/api/free-llm-providers", (req, res) => {
     res.json({ summary: getProviderSummary(), providers: LLM_PROVIDERS });
+  });
+
+  // GET /api/model-router — adviserende routing per taakprofiel (keyless).
+  app.get("/api/model-router", (req, res) => {
+    res.json({ paidDefault: PAID_DEFAULT, recommendations: allRecommendations() });
+  });
+
+  // GET /api/agents/:id/routing — welke gratis provider past bij deze agent.
+  app.get("/api/agents/:id/routing", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig agent ID" });
+    const agent = storage.getAgent(id);
+    if (!agent) return res.status(404).json({ error: "Agent niet gevonden" });
+    res.json({ paidDefault: PAID_DEFAULT, ...recommendForAgent(agent) });
   });
 
   // GET /api/stats
