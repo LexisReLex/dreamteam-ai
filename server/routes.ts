@@ -9,6 +9,7 @@ import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
 import { fetchAndAnalyze, SeoError } from "./seo";
+import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -375,6 +376,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Start de in-proces loop-scheduler.
   startScheduler();
+
+  // GET /api/free-llm-providers — catalogus van gratis LLM API-providers.
+  // Statische, geverifieerde momentopname (zie shared/freeLlmProviders.ts).
+  app.get("/api/free-llm-providers", (req, res) => {
+    res.json({ summary: getProviderSummary(), providers: LLM_PROVIDERS });
+  });
 
   // GET /api/stats
   app.get("/api/stats", (req, res) => {
