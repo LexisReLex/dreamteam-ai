@@ -11,6 +11,7 @@ import { accessGuard } from "./security";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
+import { chooseProvider, isGroqEnabled, groqChat } from "./groq";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -196,40 +197,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Add current message
     conversationHistory.push({ role: "user", content: compress(content).text });
 
+    const systemPrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
     // Schat tokens: ~4 chars per token, plus systeem-prompt overhead
     const estimatedTokens = Math.ceil(content.length / 4) + 500;
-    if (!checkAndUpdateBudget(estimatedTokens)) {
-      const assistantMsg = storage.createMessage({ 
-        agentId, 
-        role: "assistant", 
-        content: "Het dagelijkse gebruik-limiet is bereikt. Probeer het morgen opnieuw of neem contact op via info@dreamteam.nl." 
-      });
-      return res.json([userMsg, assistantMsg]);
-    }
 
-    // Call Claude API
+    // Router bepaalt de provider. Groq is gratis (geen paid budget); het betaalde
+    // Claude-pad heeft budgetbewaking en is tevens het vangnet als Groq faalt.
+    const provider = chooseProvider(agent, isGroqEnabled());
     let assistantContent = "Ik ben momenteel niet beschikbaar. Probeer het later opnieuw.";
-    try {
-      const systemPrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
 
+    // Claude-pad met budgetbewaking. Retourneert false alleen bij een API-fout.
+    const runClaude = async (): Promise<void> => {
+      if (!checkAndUpdateBudget(estimatedTokens)) {
+        assistantContent = "Het dagelijkse gebruik-limiet is bereikt. Probeer het morgen opnieuw of neem contact op via info@dreamteam.nl.";
+        return;
+      }
       const response = await anthropicClient.messages.create({
         model: "claude-haiku-4-5",
         max_tokens: 1024,
         system: systemPrompt,
         messages: conversationHistory,
       });
-
-      assistantContent = response.content[0].type === "text"
-        ? response.content[0].text
-        : assistantContent;
-
-      // Update teller met werkelijke tokens als beschikbaar
+      assistantContent = response.content[0].type === "text" ? response.content[0].text : assistantContent;
       if (response.usage) {
-        const actual = response.usage.input_tokens + response.usage.output_tokens;
-        reconcileBudget(actual, estimatedTokens); // correctie
+        reconcileBudget(response.usage.input_tokens + response.usage.output_tokens, estimatedTokens);
+      }
+    };
+
+    try {
+      if (provider === "groq") {
+        // Groq is gratis — geen budget consumeren. Faalt het, dan Claude als vangnet.
+        try {
+          const r = await groqChat({ system: systemPrompt, messages: conversationHistory });
+          assistantContent = r.content;
+          console.log(`[chat] agent ${agentId} via Groq (${r.model})`);
+        } catch (gErr: any) {
+          console.warn(`[chat] Groq faalde, val terug op Claude: ${gErr?.message || gErr}`);
+          await runClaude();
+        }
+      } else {
+        await runClaude();
       }
     } catch (err: any) {
-      console.error("Anthropic API error:", err?.message || err);
+      console.error("LLM API error:", err?.message || err);
       assistantContent = "Er is een fout opgetreden. Probeer het later opnieuw.";
     }
 
