@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Loader2, Play, Trash2, ChevronDown, ChevronUp, RefreshCw,
-  CheckCircle2, XCircle, AlertTriangle, Clock, Gauge, Zap, Sparkles,
+  CheckCircle2, XCircle, AlertTriangle, Clock, Gauge, Zap, Sparkles, Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -20,6 +20,7 @@ import type { Loop, LoopRun, Agent } from "@shared/schema";
 interface LoopWithAgent extends Loop { agent?: Agent | null; }
 interface LoopDetail extends LoopWithAgent { runs: LoopRun[]; }
 interface Budget { used: number; limit: number; remaining: number; resetAt: string; }
+interface Headroom { compressions: number; tokensBefore: number; tokensAfter: number; tokensSaved: number; savingsRatio: number; savingsPct: number; }
 
 const CADENCE_OPTIONS = [
   { value: "manual", label: "Handmatig" },
@@ -95,10 +96,12 @@ export default function Loops() {
   const { data: loops, isLoading } = useQuery<LoopWithAgent[]>({ queryKey: ["/api/loops"] });
   const { data: agents } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
   const { data: budget } = useQuery<Budget>({ queryKey: ["/api/budget"] });
+  const { data: headroom } = useQuery<Headroom>({ queryKey: ["/api/headroom"] });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["/api/loops"] });
     qc.invalidateQueries({ queryKey: ["/api/budget"] });
+    qc.invalidateQueries({ queryKey: ["/api/headroom"] });
   };
 
   const createMutation = useMutation({
@@ -269,6 +272,14 @@ export default function Loops() {
                   style={{ width: `${budgetPct}%` }} />
               </div>
             </div>
+            {/* Headroom — bespaarde tokens door de context-compressielaag */}
+            {headroom && headroom.tokensSaved > 0 && (
+              <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 border-l border-[rgba(255,255,255,0.08)]" data-testid="headroom-savings" title={`Headroom comprimeerde context ${headroom.compressions}× — ${headroom.tokensBefore.toLocaleString()} → ${headroom.tokensAfter.toLocaleString()} tokens`}>
+                <Minimize2 className="w-3.5 h-3.5 text-green-400" />
+                <span className="text-xs font-medium text-green-400">−{headroom.tokensSaved.toLocaleString()}</span>
+                <span className="text-[10px] text-muted-foreground">bespaard ({headroom.savingsPct}%)</span>
+              </div>
+            )}
           </div>
         )}
 

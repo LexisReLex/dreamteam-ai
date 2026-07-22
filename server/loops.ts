@@ -1,5 +1,6 @@
 import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget } from "./ai";
+import { compressState } from "./headroom";
 import { getAgentSystemPrompt } from "./prompts";
 import { storage } from "./storage";
 import type { Loop, LoopRun } from "@shared/schema";
@@ -56,9 +57,12 @@ function extractText(resp: Message): string {
   return block && block.type === "text" ? block.text : "";
 }
 
+// De STATE-ruggengraat wordt via de Headroom-compressielaag verkleind: eerst
+// ceremonie weghalen, dan (indien nodig) de oudste hele run-entries laten vallen
+// i.p.v. willekeurig midden in een entry af te kappen. Elke bespaarde token is
+// budget dat de volgende maker-run níet verbruikt.
 function trimState(state: string): string {
-  if (state.length <= MAX_STATE_CHARS) return state;
-  return state.slice(0, MAX_STATE_CHARS) + "\n\n…(oudere historie afgekapt)";
+  return compressState(state, MAX_STATE_CHARS).text;
 }
 
 // ─── Run-lock ──────────────────────────────────────────────────────────────────
