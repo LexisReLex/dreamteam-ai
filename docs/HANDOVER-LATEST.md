@@ -2,7 +2,30 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-22 · **Branch:** `claude/free-llm-api-resources-lu1ta3` (PR's gemerged naar `main`)
+**Laatst bijgewerkt:** 2026-07-22 (n8n-workflows) · **Branch:** `claude/n8n-workflows-analyse-fb8lke`
+
+## Nieuw — n8n-workflows onderzocht, geanalyseerd & geïnstalleerd (22 jul 2026)
+
+Losse tool, staat naast DreamTeam (niet in de app gemerged). Repo: Zie619/n8n-workflows (MIT).
+
+**Wat het is:** doorzoekbare bibliotheek van ~2.000 kant-en-klare n8n-automatiseringen + snelle Python-zoekmachine (FastAPI + SQLite FTS5).
+
+**Geverifieerd op mijn install (echte cijfers, niet geschat):** 2.061 workflows geïndexeerd (0 fouten) · 311 integraties · 30.774 nodes · 16 categorieën · server gaf HTTP 200 op `/api/stats`, zoeken werkt live. (README claimt 4.343 — werkelijk aanwezig 2.061.)
+
+**Relevantie Lexxy (live getelde treffers):** shopify 20 · google sheets 285 · telegram 185 · http 245 · webhook 1.006 · scrape 11 — precies de bouwstenen van je Daily Competitor Watcher.
+
+**Jouw directe eerste stap op de Mac:** volg `docs/n8n-workflows/INSTALL-MAC.md` (5 stappen, ± 5 min, €0) → interface op `localhost:8000`. Daarna zoeken op `shopify`/`competitor`/`telegram`, beste JSON's importeren in je n8n en je eigen keys koppelen.
+
+**Documenten:**
+- `docs/n8n-workflows/ONDERZOEK-ANALYSE.md` — volledig onderzoek, techniek, eerlijk oordeel, route.
+- `docs/n8n-workflows/INSTALL-MAC.md` — paste-klare Mac-gids + herstart + troubleshooting.
+- `docs/n8n-workflows/dashboard.html` — visueel statusdashboard (ook als artifact in de zijbalk).
+
+**Open vraag voor jou:** waar draait je n8n-omgeving nu (waar staat de Competitor Watcher)? Dat bepaalt waar je de gekozen workflows importeert.
+
+---
+
+## Vorige stand — Fase 1 LLM-routing (branch `claude/free-llm-api-resources-lu1ta3`, gemerged naar `main`)
 
 ## Waar we staan — Fase 1 klaar (kostenefficiënte routing)
 

@@ -1,0 +1,246 @@
+<title>n8n-workflows — Onderzoek, Analyse & Install</title>
+<style>
+  :root {
+    --bg: #f6f4f1;
+    --surface: #fffefc;
+    --surface-2: #f0ece7;
+    --ink: #1c1a19;
+    --ink-2: #6b6560;
+    --ink-3: #9a938c;
+    --line: #e4ddd5;
+    --accent: #e8517a;
+    --accent-soft: #fbe8ee;
+    --good: #2f9e6f;
+    --good-soft: #e2f3ea;
+    --warn: #d98a25;
+    --warn-soft: #f8edd8;
+    --todo: #a9a29b;
+    --todo-soft: #ece8e3;
+    --shadow: 0 1px 2px rgba(28,26,25,.04), 0 8px 24px rgba(28,26,25,.05);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17151a;
+      --surface: #201d24;
+      --surface-2: #272430;
+      --ink: #f2eef4;
+      --ink-2: #b3aaba;
+      --ink-3: #7d7488;
+      --line: #322e3a;
+      --accent: #f16b91;
+      --accent-soft: #3a2029;
+      --good: #4cc08c;
+      --good-soft: #16301f;
+      --warn: #e6a34a;
+      --warn-soft: #33260f;
+      --todo: #6f6779;
+      --todo-soft: #2a2732;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f4f1; --surface: #fffefc; --surface-2: #f0ece7; --ink: #1c1a19; --ink-2: #6b6560;
+    --ink-3: #9a938c; --line: #e4ddd5; --accent: #e8517a; --accent-soft: #fbe8ee;
+    --good: #2f9e6f; --good-soft: #e2f3ea; --warn: #d98a25; --warn-soft: #f8edd8;
+    --todo: #a9a29b; --todo-soft: #ece8e3; --shadow: 0 1px 2px rgba(28,26,25,.04), 0 8px 24px rgba(28,26,25,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #17151a; --surface: #201d24; --surface-2: #272430; --ink: #f2eef4; --ink-2: #b3aaba;
+    --ink-3: #7d7488; --line: #322e3a; --accent: #f16b91; --accent-soft: #3a2029;
+    --good: #4cc08c; --good-soft: #16301f; --warn: #e6a34a; --warn-soft: #33260f;
+    --todo: #6f6779; --todo-soft: #2a2732; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 32px 22px 64px; }
+
+  /* header */
+  .head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 20px; justify-content: space-between; margin-bottom: 6px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: 11.5px; font-weight: 700; color: var(--accent); margin: 0 0 8px; }
+  h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.08; margin: 0; letter-spacing: -.02em; text-wrap: balance; font-weight: 800; }
+  .sub { color: var(--ink-2); margin: 10px 0 0; max-width: 60ch; }
+  .live {
+    display: inline-flex; align-items: center; gap: 8px; background: var(--good-soft); color: var(--good);
+    border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); padding: 7px 13px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent);} 70% { box-shadow: 0 0 0 7px transparent;} 100% { box-shadow: 0 0 0 0 transparent;} }
+  @media (prefers-reduced-motion: reduce) { .live .dot { animation: none; } }
+
+  .meta { color: var(--ink-3); font-size: 12.5px; margin-top: 18px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  /* phase tracker */
+  .phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 26px 0 30px; }
+  .phase { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 13px 12px; box-shadow: var(--shadow); position: relative; }
+  .phase .n { font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: .08em; }
+  .phase .t { font-weight: 700; font-size: 14px; margin-top: 3px; }
+  .phase .s { font-size: 11.5px; font-weight: 600; margin-top: 7px; display: inline-flex; align-items: center; gap: 6px; }
+  .phase.done { border-color: color-mix(in srgb, var(--good) 34%, var(--line)); }
+  .phase.done .s { color: var(--good); }
+  .phase.busy { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn-soft) 55%, var(--surface)); }
+  .phase.busy .s { color: var(--warn); }
+  .phase .s .ic { width: 15px; height: 15px; }
+
+  /* stat tiles */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 30px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 15px; box-shadow: var(--shadow); }
+  .stat .v { font-size: 30px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .stat .l { color: var(--ink-2); font-size: 12.5px; margin-top: 7px; }
+  .stat .src { color: var(--ink-3); font-size: 10.5px; margin-top: 5px; }
+
+  /* blocks grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 20px 8px; box-shadow: var(--shadow); }
+  .card > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .09em; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
+  .card > h2 .tag { width: 9px; height: 9px; border-radius: 3px; }
+  .card .hint { color: var(--ink-3); font-size: 12px; margin: 0 0 12px; }
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  ul.list li { display: flex; gap: 11px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  ul.list li:first-child { border-top: none; }
+  .chk { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+  li .txt { color: var(--ink); }
+  li .txt small { display: block; color: var(--ink-2); font-size: 12px; margin-top: 1px; }
+  .pill { flex: none; align-self: flex-start; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; }
+  .pill.good { background: var(--good-soft); color: var(--good); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.todo { background: var(--todo-soft); color: var(--ink-2); }
+
+  /* relevance table */
+  .relevance { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .relevance .rhead { padding: 18px 20px 14px; }
+  .relevance h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .09em; margin: 0; }
+  .relevance .hint { color: var(--ink-3); font-size: 12px; margin: 5px 0 0; }
+  .tscroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 460px; }
+  th, td { text-align: left; padding: 11px 20px; border-top: 1px solid var(--line); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); font-weight: 700; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  td .bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent); vertical-align: middle; margin-right: 9px; }
+  .term { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; }
+
+  .foot { margin-top: 26px; color: var(--ink-3); font-size: 12px; text-align: center; line-height: 1.7; }
+  .foot code { background: var(--surface-2); padding: 2px 6px; border-radius: 5px; font-size: 11.5px; }
+
+  @media (max-width: 720px) {
+    .phases { grid-template-columns: repeat(2, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div>
+      <p class="eyebrow">DreamTeam · losse tool</p>
+      <h1>n8n-workflows — bibliotheek van ~2.000 automatiseringen</h1>
+      <p class="sub">Onderzocht, geanalyseerd, lokaal geïnstalleerd en live geverifieerd. Klaar om op je Mac te draaien en te oogsten voor Lexxy.</p>
+    </div>
+    <span class="live"><span class="dot"></span>Install geverifieerd — server gaf HTTP 200</span>
+  </div>
+
+  <div class="meta">
+    <span><b>Repo:</b> Zie619/n8n-workflows · MIT-licentie</span>
+    <span><b>Branch:</b> claude/n8n-workflows-analyse-fb8lke</span>
+    <span><b>Bijgewerkt:</b> 22 jul 2026</span>
+  </div>
+
+  <!-- PHASE TRACKER -->
+  <div class="phases">
+    <div class="phase done"><div class="n">01</div><div class="t">Onderzoek</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
+    <div class="phase done"><div class="n">02</div><div class="t">Analyse</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
+    <div class="phase done"><div class="n">03</div><div class="t">Installeren</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
+    <div class="phase done"><div class="n">04</div><div class="t">Verifiëren</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
+    <div class="phase busy"><div class="n">05</div><div class="t">Oogsten</div><div class="s">◐ Jij, op de Mac</div></div>
+  </div>
+
+  <!-- STAT TILES -->
+  <div class="stats">
+    <div class="stat"><div class="v">2.061</div><div class="l">workflows geïndexeerd</div><div class="src">0 fouten · gemeten</div></div>
+    <div class="stat"><div class="v">311</div><div class="l">unieke integraties</div><div class="src">/api/stats</div></div>
+    <div class="stat"><div class="v">30.774</div><div class="l">nodes totaal</div><div class="src">/api/stats</div></div>
+    <div class="stat"><div class="v">16</div><div class="l">categorieën</div><div class="src">/api/categories</div></div>
+  </div>
+
+  <!-- FOUR FIXED BLOCKS -->
+  <div class="grid">
+    <div class="card">
+      <h2><span class="tag" style="background:var(--good)"></span>Wat is gedaan</h2>
+      <p class="hint">Alles geverifieerd met echte output — niet aangenomen.</p>
+      <ul class="list">
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Repo gekloond & doorgrond <small>54 MB · structuur + API in kaart</small></span></li>
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Dependencies geïnstalleerd <small>venv + FastAPI/Uvicorn/Pydantic</small></span></li>
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Zoekindex gebouwd <small>2.061 workflows, 0 fouten</small></span></li>
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Server getest <small>/api/stats → 200 · zoeken werkt live</small></span></li>
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Docs geschreven <small>onderzoek+analyse & Mac-installatiegids</small></span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="tag" style="background:var(--accent)"></span>Waar gaan we heen</h2>
+      <p class="hint">Doel: snel de juiste n8n-flow vinden i.p.v. from-scratch bouwen.</p>
+      <ul class="list">
+        <li><span class="pill good">nu</span><span class="txt">Zoekmachine op je Mac draaien <small>localhost:8000 · zie INSTALL-MAC.md</small></span></li>
+        <li><span class="pill good">dan</span><span class="txt">Zoeken op shopify / competitor / telegram <small>3–5 kandidaten openen</small></span></li>
+        <li><span class="pill good">dan</span><span class="txt">Beste JSON's importeren in jouw n8n <small>credentials koppelen + testen</small></span></li>
+        <li><span class="pill todo">later</span><span class="txt">Als vaste referentie naast DreamTeam <small>niet mergen — losse tool</small></span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="tag" style="background:var(--warn)"></span>Wat moeten we nog</h2>
+      <p class="hint">In volgorde — de eerste twee zijn voor jou op de Mac.</p>
+      <ul class="list">
+        <li><span class="pill warn">1</span><span class="txt">Install draaien op de Mac <small>5 stappen, ± 5 min, €0</small></span></li>
+        <li><span class="pill warn">2</span><span class="txt">Interface verkennen & JSON's kiezen <small>welke passen bij de Competitor Watcher?</small></span></li>
+        <li><span class="pill todo">3</span><span class="txt">Gekozen flows in n8n zetten <small>eigen keys, één testrun vóór live</small></span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="tag" style="background:var(--todo)"></span>Wat hebben we nodig</h2>
+      <p class="hint">Weinig — daarom kan het meteen.</p>
+      <ul class="list">
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Python 3.9+ op de Mac <small>standaard aanwezig op macOS</small></span></li>
+        <li><span class="pill todo">jij</span><span class="txt">Een n8n-omgeving om in te importeren <small>waar draait jouw Competitor Watcher nu?</small></span></li>
+        <li><span class="pill todo">jij</span><span class="txt">API-keys per flow <small>Shopify / Telegram / Google — bij het koppelen</small></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- RELEVANCE -->
+  <div class="relevance">
+    <div class="rhead">
+      <h2>Relevantie voor Lexxy — live getelde treffers</h2>
+      <p class="hint">Aantallen uit de draaiende zoekindex op 22 jul 2026. Dit zijn de bouwstenen van jouw Daily Competitor Watcher.</p>
+    </div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Zoekterm</th><th>Treffers</th><th>Waarom relevant</th></tr></thead>
+        <tbody>
+          <tr><td><span class="term">webhook</span></td><td class="num"><span class="bar" style="width:100px"></span>1.006</td><td>Basis van elke koppeling</td></tr>
+          <tr><td><span class="term">openai</span></td><td class="num"><span class="bar" style="width:50px"></span>507</td><td>AI-stappen in flows</td></tr>
+          <tr><td><span class="term">google sheets</span></td><td class="num"><span class="bar" style="width:28px"></span>285</td><td>Je product-/data-sheets vullen</td></tr>
+          <tr><td><span class="term">http</span></td><td class="num"><span class="bar" style="width:24px"></span>245</td><td>Concurrenten scrapen/koppelen</td></tr>
+          <tr><td><span class="term">telegram</span></td><td class="num"><span class="bar" style="width:18px"></span>185</td><td>Alerts — jouw Watcher-patroon</td></tr>
+          <tr><td><span class="term">slack</span></td><td class="num"><span class="bar" style="width:15px"></span>150</td><td>Team-/alertnotificaties</td></tr>
+          <tr><td><span class="term">email</span></td><td class="num"><span class="bar" style="width:6px"></span>50</td><td>Mail-alerts & rapportages</td></tr>
+          <tr><td><span class="term">shopify</span></td><td class="num"><span class="bar" style="width:4px"></span>20</td><td>Direct jouw winkel</td></tr>
+          <tr><td><span class="term">scrape</span></td><td class="num"><span class="bar" style="width:3px"></span>11</td><td>Concurrentie-monitoring</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="foot">
+    Detail-onderzoek: <code>docs/n8n-workflows/ONDERZOEK-ANALYSE.md</code> · Mac-install: <code>docs/n8n-workflows/INSTALL-MAC.md</code><br>
+    Alle cijfers live geverifieerd uit de lokaal draaiende install — geen schattingen. README claimt 4.343; werkelijk aanwezig: 2.061.
+  </p>
+</div>
