@@ -60,6 +60,18 @@ export interface SeoSignals {
     xFrameOptions: boolean;
     referrerPolicy: boolean;
   };
+  site: SiteSignals | null;
+}
+
+// Site-brede signalen uit robots.txt + sitemap.xml (same-origin, keyless).
+export interface SiteSignals {
+  robotsFound: boolean;
+  blanketDisallowAll: boolean; // User-agent: * met Disallow: /
+  blockedAiCrawlers: string[]; // bv. GPTBot, ClaudeBot, Google-Extended
+  sitemapDeclared: boolean; // Sitemap:-directive in robots.txt
+  sitemapUrl: string | null;
+  sitemapFound: boolean;
+  sitemapUrlCount: number;
 }
 
 export interface SeoReport {
@@ -90,6 +102,10 @@ const DEPRECATED_SCHEMA_TYPES = new Set([
   "VehicleListing",
   "CourseInfo",
 ]);
+
+// AI-crawler user-agents (GEO/AI-search). Geblokkeerd zijn = niet zichtbaar in
+// AI-antwoorden — vaak een bewuste keuze, dus we melden het als signaal.
+const AI_CRAWLERS = ["GPTBot", "ClaudeBot", "Claude-Web", "PerplexityBot", "Google-Extended", "CCBot", "Applebot-Extended"];
 
 const DISCLAIMER =
   "Heuristische analyse op basis van statische HTML + response-headers (geen JS-rendering). " +
@@ -244,6 +260,64 @@ function collectTypes(node: unknown, out: string[]): void {
   }
 }
 
+// ─── robots.txt + sitemap.xml (pure parsers, testbaar zonder netwerk) ─────────
+
+/** Parseert robots.txt: sitemaps, blanket-blokkade (User-agent: * → Disallow: /)
+ * en welke AI-crawlers expliciet volledig geblokkeerd worden. */
+export function parseRobots(text: string): {
+  sitemaps: string[];
+  blanketDisallowAll: boolean;
+  blockedAiCrawlers: string[];
+} {
+  const sitemaps: string[] = [];
+  const blockedAiCrawlers = new Set<string>();
+  let blanketDisallowAll = false;
+
+  // Groepeer regels per user-agent-blok.
+  let currentAgents: string[] = [];
+  let sawRuleSinceAgent = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    const field = line.slice(0, colon).trim().toLowerCase();
+    const value = line.slice(colon + 1).trim();
+
+    if (field === "sitemap") {
+      if (value) sitemaps.push(value);
+      continue;
+    }
+    if (field === "user-agent") {
+      // Nieuw agent-blok begint zodra na een regel opnieuw een agent verschijnt.
+      if (sawRuleSinceAgent) {
+        currentAgents = [];
+        sawRuleSinceAgent = false;
+      }
+      currentAgents.push(value.toLowerCase());
+      continue;
+    }
+    if (field === "disallow" || field === "allow") {
+      sawRuleSinceAgent = true;
+      if (field === "disallow" && value === "/") {
+        if (currentAgents.includes("*")) blanketDisallowAll = true;
+        for (const crawler of AI_CRAWLERS) {
+          if (currentAgents.includes(crawler.toLowerCase())) blockedAiCrawlers.add(crawler);
+        }
+      }
+    }
+  }
+  return { sitemaps, blanketDisallowAll, blockedAiCrawlers: Array.from(blockedAiCrawlers) };
+}
+
+/** Parseert een sitemap-XML: geldig urlset/sitemapindex + aantal <loc>-entries. */
+export function parseSitemap(xml: string): { valid: boolean; isIndex: boolean; urlCount: number } {
+  const isIndex = /<sitemapindex[\s>]/i.test(xml);
+  const isUrlset = /<urlset[\s>]/i.test(xml);
+  const urlCount = (xml.match(/<loc\b/gi) || []).length;
+  return { valid: isIndex || isUrlset, isIndex, urlCount };
+}
+
 export function extractSignals(html: string, https: boolean, headers: Record<string, string>): SeoSignals {
   const title = firstMatch(/<title[^>]*>([\s\S]*?)<\/title>/i, html);
   const metaDescription = metaContent(html, "description");
@@ -287,6 +361,7 @@ export function extractSignals(html: string, https: boolean, headers: Record<str
       xFrameOptions: h("x-frame-options"),
       referrerPolicy: h("referrer-policy"),
     },
+    site: null,
   };
 }
 
@@ -365,6 +440,17 @@ export function scoreReport(
     technical -= Math.min(15, missingHeaders.length * 3);
     add({ category: "Technical", severity: "low", title: "Ontbrekende security-headers", detail: `Ontbreekt: ${missingHeaders.join(", ")}.`, recommendation: "Voeg de ontbrekende security-headers toe (page-experience + defense-in-depth)." });
   }
+  const site = signals.site;
+  if (site) {
+    if (site.blanketDisallowAll) {
+      technical -= 40;
+      add({ category: "Technical", severity: "critical", title: "robots.txt blokkeert alle crawlers", detail: "robots.txt bevat 'User-agent: *' met 'Disallow: /'.", recommendation: "Verwijder de blanket-Disallow als de site vindbaar moet zijn; nu wordt de hele site geweerd uit de index." });
+    }
+    if (!site.sitemapFound) {
+      technical -= 8;
+      add({ category: "Technical", severity: "medium", title: "Geen XML-sitemap gevonden", detail: site.sitemapDeclared ? "In robots.txt gedeclareerde sitemap was niet bereikbaar of ongeldig." : "Geen sitemap in robots.txt en geen /sitemap.xml gevonden.", recommendation: "Publiceer een XML-sitemap en verwijs ernaar met een 'Sitemap:'-regel in robots.txt (helpt discovery/indexering)." });
+    }
+  }
 
   // ── Content (dekkingsvloer + structuur) ──
   let content = 100;
@@ -406,6 +492,10 @@ export function scoreReport(
   if (signals.h1Count === 0 || signals.h2Count === 0) {
     ai -= 15;
     add({ category: "AI/GEO", severity: "low", title: "Zwakke heading-hiërarchie", detail: "Een duidelijke H1→H2-structuur ontbreekt.", recommendation: "Structureer met vraag-gerichte headings; ~44% van AI-citaties komt uit de eerste 30% van de pagina." });
+  }
+  if (site && site.blockedAiCrawlers.length > 0) {
+    ai -= 12;
+    add({ category: "AI/GEO", severity: "medium", title: "AI-crawlers geblokkeerd", detail: `robots.txt blokkeert: ${site.blockedAiCrawlers.join(", ")}.`, recommendation: "Als je zichtbaar wilt zijn in AI-antwoorden (ChatGPT, Perplexity, Google AI): geef deze crawlers toegang. Blokkeren is legitiem, maar sluit je uit van AI-search." });
   }
 
   // ── Images (alt-dekking) ──
@@ -449,9 +539,17 @@ export function scoreReport(
 /** Pure analyse: HTML + context → rapport. Testbaar zonder netwerk. */
 export function analyze(
   html: string,
-  ctx: { url: string; finalUrl: string; statusCode: number; https: boolean; headers: Record<string, string> },
+  ctx: {
+    url: string;
+    finalUrl: string;
+    statusCode: number;
+    https: boolean;
+    headers: Record<string, string>;
+    site?: SiteSignals | null;
+  },
 ): SeoReport {
   const signals = extractSignals(html, ctx.https, ctx.headers);
+  signals.site = ctx.site ?? null;
   return scoreReport(signals, { url: ctx.url, finalUrl: ctx.finalUrl, statusCode: ctx.statusCode });
 }
 
@@ -512,13 +610,83 @@ export async function fetchAndAnalyze(rawUrl: string): Promise<SeoReport> {
   const html = await readCapped(response, MAX_BYTES);
   const headers = headersToObject(response.headers);
 
+  // Best-effort site-signalen (robots.txt + sitemap) — mag de hoofdanalyse
+  // nooit laten falen.
+  const site = await fetchSiteSignals(current.origin).catch(() => null);
+
   return analyze(html, {
     url: rawUrl,
     finalUrl: current.toString(),
     statusCode: response.status,
     https: current.protocol === "https:",
     headers,
+    site,
   });
+}
+
+/** Doet één SSRF-veilige GET met time-out en bytelimiet. Geeft null bij falen. */
+async function safeGet(urlStr: string, maxBytes: number): Promise<{ status: number; text: string } | null> {
+  let url: URL;
+  try {
+    url = await assertUrlSafe(urlStr);
+  } catch {
+    return null;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: { "User-Agent": "DreamTeamSEO/1.0 (+https://dreamteam.nl; keyless SEO audit)" },
+    });
+    const text = await readCapped(res, maxBytes);
+    return { status: res.status, text };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Haalt robots.txt + sitemap op (same-origin, keyless) en bouwt de site-signalen. */
+export async function fetchSiteSignals(origin: string): Promise<SiteSignals> {
+  const signals: SiteSignals = {
+    robotsFound: false,
+    blanketDisallowAll: false,
+    blockedAiCrawlers: [],
+    sitemapDeclared: false,
+    sitemapUrl: null,
+    sitemapFound: false,
+    sitemapUrlCount: 0,
+  };
+
+  const robots = await safeGet(`${origin}/robots.txt`, 512_000);
+  if (robots && robots.status === 200 && robots.text.trim()) {
+    signals.robotsFound = true;
+    const parsed = parseRobots(robots.text);
+    signals.blanketDisallowAll = parsed.blanketDisallowAll;
+    signals.blockedAiCrawlers = parsed.blockedAiCrawlers;
+    if (parsed.sitemaps.length > 0) {
+      signals.sitemapDeclared = true;
+      signals.sitemapUrl = parsed.sitemaps[0];
+    }
+  }
+
+  // Val terug op de conventionele /sitemap.xml als robots er geen declareert.
+  const sitemapUrl = signals.sitemapUrl || `${origin}/sitemap.xml`;
+  const sitemap = await safeGet(sitemapUrl, MAX_BYTES);
+  if (sitemap && sitemap.status === 200) {
+    const parsed = parseSitemap(sitemap.text);
+    if (parsed.valid) {
+      signals.sitemapFound = true;
+      signals.sitemapUrl = sitemapUrl;
+      signals.sitemapUrlCount = parsed.urlCount;
+    }
+  }
+
+  return signals;
 }
 
 async function readCapped(res: Response, maxBytes: number): Promise<string> {

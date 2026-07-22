@@ -6,6 +6,9 @@ import {
   extractSignals,
   analyze,
   visibleText,
+  parseRobots,
+  parseSitemap,
+  type SiteSignals,
 } from "./seo";
 
 describe("classifyIp (SSRF-classificatie)", () => {
@@ -163,5 +166,94 @@ describe("analyze — ongeldige en verouderde JSON-LD", () => {
       <script type="application/ld+json">{"@type":"HowTo","name":"doe dit"}</script></head><body><h1>t</h1></body></html>`;
     const report = analyze(html, { url: "https://a.nl", finalUrl: "https://a.nl", statusCode: 200, https: true, headers: {} });
     expect(report.findings.some((f) => f.title === "Verouderde schema-typen")).toBe(true);
+  });
+});
+
+describe("parseRobots", () => {
+  it("detecteert een blanket Disallow voor alle crawlers", () => {
+    const r = parseRobots("User-agent: *\nDisallow: /");
+    expect(r.blanketDisallowAll).toBe(true);
+  });
+
+  it("blokkeert niet blanket bij een specifieke Disallow", () => {
+    const r = parseRobots("User-agent: *\nDisallow: /admin/\nDisallow: /cart");
+    expect(r.blanketDisallowAll).toBe(false);
+  });
+
+  it("leest Sitemap-directives (hoofdletterongevoelig)", () => {
+    const r = parseRobots("User-agent: *\nAllow: /\nsitemap: https://voorbeeld.nl/sitemap.xml");
+    expect(r.sitemaps).toContain("https://voorbeeld.nl/sitemap.xml");
+  });
+
+  it("detecteert geblokkeerde AI-crawlers zonder de site blanket te blokkeren", () => {
+    const r = parseRobots("User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /private/");
+    expect(r.blockedAiCrawlers).toContain("GPTBot");
+    expect(r.blanketDisallowAll).toBe(false);
+  });
+
+  it("negeert commentaar en lege regels", () => {
+    const r = parseRobots("# comment\n\nUser-agent: *\nDisallow: /  # blok alles");
+    expect(r.blanketDisallowAll).toBe(true);
+  });
+});
+
+describe("parseSitemap", () => {
+  it("telt <loc>-entries in een urlset", () => {
+    const xml = `<?xml version="1.0"?><urlset><url><loc>https://a.nl/</loc></url><url><loc>https://a.nl/x</loc></url></urlset>`;
+    const r = parseSitemap(xml);
+    expect(r).toMatchObject({ valid: true, isIndex: false, urlCount: 2 });
+  });
+
+  it("herkent een sitemapindex", () => {
+    const xml = `<sitemapindex><sitemap><loc>https://a.nl/sm1.xml</loc></sitemap></sitemapindex>`;
+    expect(parseSitemap(xml).isIndex).toBe(true);
+  });
+
+  it("markeert onzin als ongeldig", () => {
+    expect(parseSitemap("<html>geen sitemap</html>").valid).toBe(false);
+  });
+});
+
+describe("analyze — site-signalen (robots + sitemap)", () => {
+  const baseHtml = `<html lang="nl"><head><title>Een nette titel voor de test hier</title>
+    <meta name="description" content="Een beschrijving van gepaste lengte voor deze testpagina zodat On-Page niet strandt.">
+    <link rel="canonical" href="https://a.nl/"><meta name="viewport" content="width=device-width">
+    <script type="application/ld+json">{"@type":"Organization","name":"A"}</script></head>
+    <body><h1>Titel</h1><h2>Sub</h2><p>${"Voldoende tekst voor de content-vloer hier. ".repeat(20)}</p></body></html>`;
+  const ctx = { url: "https://a.nl/", finalUrl: "https://a.nl/", statusCode: 200, https: true, headers: {} };
+
+  const goodSite: SiteSignals = {
+    robotsFound: true, blanketDisallowAll: false, blockedAiCrawlers: [],
+    sitemapDeclared: true, sitemapUrl: "https://a.nl/sitemap.xml", sitemapFound: true, sitemapUrlCount: 42,
+  };
+
+  it("geeft geen site-findings bij een gezonde robots + sitemap", () => {
+    const report = analyze(baseHtml, { ...ctx, site: goodSite });
+    const titles = report.findings.map((f) => f.title);
+    expect(titles).not.toContain("robots.txt blokkeert alle crawlers");
+    expect(titles).not.toContain("Geen XML-sitemap gevonden");
+    expect(titles).not.toContain("AI-crawlers geblokkeerd");
+  });
+
+  it("meldt een blanket robots-blokkade als kritiek", () => {
+    const report = analyze(baseHtml, { ...ctx, site: { ...goodSite, blanketDisallowAll: true } });
+    const f = report.findings.find((x) => x.title === "robots.txt blokkeert alle crawlers");
+    expect(f?.severity).toBe("critical");
+  });
+
+  it("meldt een ontbrekende sitemap", () => {
+    const report = analyze(baseHtml, { ...ctx, site: { ...goodSite, sitemapFound: false } });
+    expect(report.findings.some((f) => f.title === "Geen XML-sitemap gevonden")).toBe(true);
+  });
+
+  it("meldt geblokkeerde AI-crawlers", () => {
+    const report = analyze(baseHtml, { ...ctx, site: { ...goodSite, blockedAiCrawlers: ["GPTBot", "ClaudeBot"] } });
+    expect(report.findings.some((f) => f.title === "AI-crawlers geblokkeerd")).toBe(true);
+  });
+
+  it("werkt ook zonder site-signalen (backwards compatible)", () => {
+    const report = analyze(baseHtml, ctx);
+    expect(report.signals.site).toBeNull();
+    expect(report.findings.some((f) => f.category === "Technical" && f.title.includes("sitemap"))).toBe(false);
   });
 });

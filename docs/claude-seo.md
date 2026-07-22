@@ -84,6 +84,11 @@ Een echte, werkende tool die één URL ophaalt en analyseert:
   meta robots/noindex, viewport, `<html lang>`, H1/H2-tellingen, hreflang, JSON-LD
   (met @type-detectie + parse-validatie), Open Graph, afbeeldingen + alt-dekking,
   woordtelling, en security-headers uit de response.
+- **robots.txt + sitemap-discovery** (same-origin, keyless): leest robots.txt
+  (blanket `Disallow: /`, `Sitemap:`-directives, geblokkeerde AI-crawlers zoals
+  GPTBot/ClaudeBot/Google-Extended) en verifieert de XML-sitemap (bestaat, geldig,
+  aantal `<loc>`-entries). Voedt de Technical- (crawlability/indexering) en
+  AI/GEO-categorie. Best-effort: faalt dit, dan draait de pagina-analyse gewoon door.
 - **Scoring** naar een **SEO Health Score (0–100)** met de gewichten uit de plugin
   (`skills/seo/SKILL.md`), genormaliseerd over de keyless-meetbare categorieën:
   Content 23, Technical 22, On-Page 20, Schema 10, AI/GEO 10, Images 5. Elke
