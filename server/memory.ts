@@ -315,15 +315,35 @@ Antwoord UITSLUITEND met een JSON-array (geen tekst eromheen). Elk item:
 
 Geef een lege array [] als er niets duurzaams te onthouden valt.`;
 
+// Per-agent extractie-slot. Extractie draait fire-and-forget na een chatbeurt en
+// kan ook handmatig ("onthoud nu") worden getriggerd. Zonder slot zouden twee
+// gelijktijdige extracties hetzelfde venster lezen → dubbele LLM-call (dubbel
+// budget) én dubbele herinneringen (dedup ziet elkaars nog-niet-gecommitte
+// inserts niet). Spiegelt de inFlight-lock van de loop-engine.
+const extracting = new Set<number>();
+
 /**
  * Destilleert nieuwe L1-atomen uit de onverwerkte staart van het gesprek.
  * Draait alleen als er ≥ EXTRACT_EVERY_TURNS nieuwe user-beurten zijn (of force).
- * Retourneert de nieuw opgeslagen herinneringen (leeg = niets gedaan).
+ * Retourneert de nieuw opgeslagen herinneringen (leeg = niets gedaan of al bezig).
  */
 export async function extractMemories(
   agentId: number,
   opts: { force?: boolean } = {},
 ): Promise<AgentMemory[]> {
+  if (extracting.has(agentId)) {
+    console.log(`[memory ${agentId}] extractie draait al — overgeslagen.`);
+    return [];
+  }
+  extracting.add(agentId);
+  try {
+    return await runExtraction(agentId, opts);
+  } finally {
+    extracting.delete(agentId);
+  }
+}
+
+async function runExtraction(agentId: number, opts: { force?: boolean }): Promise<AgentMemory[]> {
   const allMessages = storage.getMessages(agentId);
   const lastProcessed = storage.lastProcessedMessageId(agentId);
   const unprocessed = allMessages.filter((m) => m.id > lastProcessed);

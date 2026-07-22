@@ -135,6 +135,21 @@ describe("geheugen-bedrading (integratie)", () => {
     expect(used.length).toBeGreaterThan(0);
   });
 
+  it("laat twee gelijktijdige extracties niet dubbel draaien (concurrency-slot)", async () => {
+    chat(agentId, 3);
+    // Twee tegelijk afvuren (zoals een snelle beurt + 'onthoud nu').
+    const [a, b] = await Promise.all([
+      extractMemories(agentId, { force: true }),
+      extractMemories(agentId, { force: true }),
+    ]);
+
+    expect(createMock).toHaveBeenCalledTimes(1); // slechts één LLM-call → geen dubbel budget
+    // Eén run levert de feiten, de ander wordt geweigerd (leeg) → geen duplicaten.
+    const totalCreated = a.length + b.length;
+    expect(totalCreated).toBe(3);
+    expect(visibleMemories(agentId).length).toBe(3);
+  });
+
   it("verzet de watermark zodat dezelfde beurten niet opnieuw worden geëxtraheerd", async () => {
     chat(agentId, 3);
     await extractMemories(agentId, { force: true });
