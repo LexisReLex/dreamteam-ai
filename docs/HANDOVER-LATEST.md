@@ -14,7 +14,9 @@ Losse tool, staat naast DreamTeam (niet in de app gemerged). Repo: Zie619/n8n-wo
 
 **Relevantie Lexxy (live getelde treffers):** shopify 20 · google sheets 285 · telegram 185 · http 245 · webhook 1.006 · scrape 11 — precies de bouwstenen van je Daily Competitor Watcher.
 
-**Jouw directe eerste stap op de Mac:** volg `docs/n8n-workflows/INSTALL-MAC.md` (5 stappen, ± 5 min, €0) → interface op `localhost:8000`. Daarna zoeken op `shopify`/`competitor`/`telegram`, beste JSON's importeren in je n8n en je eigen keys koppelen.
+**Stand 23 jul:** install op de Mac **gelukt** — server draait live (`Uvicorn running on http://127.0.0.1:8000`, 2.061 workflows indexed). Volgende stap: juiste pagina openen op **http://127.0.0.1:8000** (let op: niet `localhost8000.com` — Chrome maakt daar een verkeerd domein van), dan zoeken op `shopify`/`competitor`, 3–5 beste JSON's downloaden, importeren in de lokale n8n en eigen keys koppelen + 1 testrun.
+
+**Install-route (voor een verse machine):** volg `docs/n8n-workflows/INSTALL-MAC.md` (5 stappen, ± 5 min, €0).
 
 **Documenten:**
 - `docs/n8n-workflows/ONDERZOEK-ANALYSE.md` — volledig onderzoek, techniek, eerlijk oordeel, route.

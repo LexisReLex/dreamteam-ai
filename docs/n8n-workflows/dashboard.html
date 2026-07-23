@@ -108,6 +108,7 @@
   .chk { flex: none; width: 18px; height: 18px; margin-top: 1px; }
   li .txt { color: var(--ink); }
   li .txt small { display: block; color: var(--ink-2); font-size: 12px; margin-top: 1px; }
+  li .txt code, .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
   .pill { flex: none; align-self: flex-start; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; }
   .pill.good { background: var(--good-soft); color: var(--good); }
   .pill.warn { background: var(--warn-soft); color: var(--warn); }
@@ -143,13 +144,13 @@
       <h1>n8n-workflows — bibliotheek van ~2.000 automatiseringen</h1>
       <p class="sub">Onderzocht, geanalyseerd, lokaal geïnstalleerd en live geverifieerd. Klaar om op je Mac te draaien en te oogsten voor Lexxy.</p>
     </div>
-    <span class="live"><span class="dot"></span>Install geverifieerd — server gaf HTTP 200</span>
+    <span class="live"><span class="dot"></span>Server draait live op je Mac · localhost:8000</span>
   </div>
 
   <div class="meta">
     <span><b>Repo:</b> Zie619/n8n-workflows · MIT-licentie</span>
     <span><b>Branch:</b> claude/n8n-workflows-analyse-fb8lke</span>
-    <span><b>Bijgewerkt:</b> 22 jul 2026</span>
+    <span><b>Bijgewerkt:</b> 23 jul 2026</span>
   </div>
 
   <!-- PHASE TRACKER -->
@@ -158,7 +159,7 @@
     <div class="phase done"><div class="n">02</div><div class="t">Analyse</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
     <div class="phase done"><div class="n">03</div><div class="t">Installeren</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
     <div class="phase done"><div class="n">04</div><div class="t">Verifiëren</div><div class="s"><svg class="ic" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Klaar</div></div>
-    <div class="phase busy"><div class="n">05</div><div class="t">Oogsten</div><div class="s">◐ Jij, op de Mac</div></div>
+    <div class="phase busy"><div class="n">05</div><div class="t">Oogsten</div><div class="s">◐ Nu — op je Mac</div></div>
   </div>
 
   <!-- STAT TILES -->
@@ -180,6 +181,7 @@
         <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Zoekindex gebouwd <small>2.061 workflows, 0 fouten</small></span></li>
         <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Server getest <small>/api/stats → 200 · zoeken werkt live</small></span></li>
         <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Docs geschreven <small>onderzoek+analyse & Mac-installatiegids</small></span></li>
+        <li><svg class="chk" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="var(--good-soft)"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Install op jóuw Mac gelukt <small>2.061 geïndexeerd · server live op localhost:8000</small></span></li>
       </ul>
     </div>
 
@@ -195,12 +197,14 @@
     </div>
 
     <div class="card">
-      <h2><span class="tag" style="background:var(--warn)"></span>Wat moeten we nog</h2>
-      <p class="hint">In volgorde — de eerste twee zijn voor jou op de Mac.</p>
+      <h2><span class="tag" style="background:var(--warn)"></span>To-do — in volgorde</h2>
+      <p class="hint">Install is klaar. Dit is wat er nog ligt.</p>
       <ul class="list">
-        <li><span class="pill warn">1</span><span class="txt">Install draaien op de Mac <small>5 stappen, ± 5 min, €0</small></span></li>
-        <li><span class="pill warn">2</span><span class="txt">Interface verkennen & JSON's kiezen <small>welke passen bij de Competitor Watcher?</small></span></li>
-        <li><span class="pill todo">3</span><span class="txt">Gekozen flows in n8n zetten <small>eigen keys, één testrun vóór live</small></span></li>
+        <li><span class="pill warn">nu</span><span class="txt">Juiste pagina openen <small>http://127.0.0.1:8000 — niet localhost8000.com</small></span></li>
+        <li><span class="pill warn">1</span><span class="txt">Zoeken op <code>shopify</code> &amp; <code>competitor</code> <small>samen met mij — kandidaten bekijken</small></span></li>
+        <li><span class="pill todo">2</span><span class="txt">3–5 beste JSON's downloaden <small>die lijken op je Daily Competitor Watcher</small></span></li>
+        <li><span class="pill todo">3</span><span class="txt">Importeren in je lokale n8n <small>Workflows → Import from File</small></span></li>
+        <li><span class="pill todo">4</span><span class="txt">Eigen keys koppelen + 1 testrun <small>Shopify / Telegram vóór je 'm live zet</small></span></li>
       </ul>
     </div>
 
