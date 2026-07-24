@@ -13,6 +13,37 @@ const DB_PATH = process.env.DB_PATH || "data.db";
 // Zorg dat de map bestaat (bv. een net gemount /data-volume met subdir).
 try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch { /* map bestaat al of is cwd */ }
 
+// ─── Opstartregel: waar landt de database? ────────────────────────────────────
+// Zonder DB_PATH schrijft SQLite naar de containermap en is alles vluchtig. Dat
+// gaat vandaag stíl mis: build, healthcheck en seed slagen alle drie, en pas na
+// een redeploy blijkt dat agents, loops, runs, herinneringen en profielen weg
+// zijn. Eén regel bij het opstarten maakt dat meteen zichtbaar in de logs.
+export interface DbPathNotice {
+  level: "log" | "warn";
+  message: string;
+}
+
+/** Puur en testbaar: welke opstartregel hoort bij dit pad en deze omgeving? */
+export function describeDbPath(path: string, explicit: boolean, nodeEnv?: string): DbPathNotice | null {
+  if (path === ":memory:") return null; // tests — geen ruis
+  if (explicit) {
+    return { level: "log", message: `[storage] SQLite: ${path} (pad uit DB_PATH)` };
+  }
+  if (nodeEnv === "production") {
+    return {
+      level: "warn",
+      message:
+        `[storage] SQLite: ${path} — VLUCHTIG. DB_PATH is niet gezet, dus de database staat in de ` +
+        `containermap en verdwijnt bij elke redeploy of restart (agents, loops, runs, herinneringen ` +
+        `en profielen). Mount een volume op /data en zet DB_PATH=/data/dreamteam.db — zie docs/deployment.md §2.`,
+    };
+  }
+  return { level: "log", message: `[storage] SQLite: ${path} (lokaal — DB_PATH niet gezet)` };
+}
+
+const dbNotice = describeDbPath(DB_PATH, Boolean(process.env.DB_PATH), process.env.NODE_ENV);
+if (dbNotice) console[dbNotice.level](dbNotice.message);
+
 const sqlite = new Database(DB_PATH);
 export const db = drizzle(sqlite, { schema });
 

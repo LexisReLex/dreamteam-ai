@@ -37,6 +37,18 @@ dit moet je regelen.
 
 De database (en state) overleeft nu redeploys en restarts.
 
+**Controleren in de logs (geen dashboard nodig).** De server logt bij het opstarten waar
+de database landt:
+
+```
+[storage] SQLite: /data/dreamteam.db (pad uit DB_PATH)      ← goed
+[storage] SQLite: data.db — VLUCHTIG. DB_PATH is niet gezet …  ← fout, data verdwijnt
+```
+
+Zie je de tweede regel in productie, dan schrijft SQLite naar de containermap en ben je
+alles kwijt bij de eerstvolgende redeploy. Let op: dit gaat verder stíl mis — de build
+slaagt, de healthcheck op `/api/agents` slaagt en de app seedt gewoon een verse database.
+
 > Alternatief: migreren naar Postgres/Supabase (`@supabase/supabase-js` zit al in
 > `package.json`). Meer werk, maar beter voor schaal en back-ups.
 
