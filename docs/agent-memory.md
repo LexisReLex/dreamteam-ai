@@ -109,8 +109,21 @@ in de geest van het "witte doos"-ontwerp van het origineel.
 
 - **Budget** — extractie en synthese lopen door hetzelfde gedeelde dagelijkse
   token-plafond als chat en loops; bij overschrijding worden ze stil overgeslagen.
-- **Vergeten** — cap per agent (`MEMORY_MAX_PER_AGENT`); de gebruiker kan één
-  herinnering of het hele geheugen wissen (`DELETE /api/agents/:id/memory`).
+- **Vergeten is echt vergeten** — cap per agent (`MEMORY_MAX_PER_AGENT`); de gebruiker
+  kan één herinnering of het hele geheugen wissen. Een gewist feit zit óók in het
+  persona-profiel (L3) gebakken, dus wissen raakt altijd béide lagen: het profiel gaat
+  er meteen uit en wordt daarna opnieuw opgebouwd uit wat er nog wél is (blijft er niets
+  over, dan blijft ook het profiel weg). Faalt die herbouw, dan is er géén profiel —
+  nooit het oude. Een volledige wis verzet bovendien de extractie-watermark naar het
+  laatste bericht, zodat de eerstvolgende extractie de gewiste feiten niet terugzet.
+- **Het register wint** — L1/L3 is gespreks-context, **geen bron van waarheid**. Het
+  geheugen is een tweede feitenopslag die kan afwijken van de officiële administratie;
+  daarom staat in het geïnjecteerde blok expliciet dat een officiële bron (register,
+  administratie, systeem) altijd wint bij tegenspraak. Neem nooit een bedrag, aantal of
+  afspraak uit het geheugen over zonder het bij de bron te controleren.
+- **Taal** — de extractor slaat feiten op in de taal die de gebruiker spreekt en het
+  profiel volgt de taal van de feiten; het geheugenpaneel gebruikt de i18n-sleutels
+  (`memory_*`), net als de rest van de pagina.
 - **Geen verzinsels** — de extractor krijgt strikte instructies: alleen duurzame,
   bevestigde feiten, bij twijfel weglaten. Liever niets dan ruis.
 - **Persistentie** — geheugen leeft in dezelfde SQLite-database; zet `DB_PATH` op een

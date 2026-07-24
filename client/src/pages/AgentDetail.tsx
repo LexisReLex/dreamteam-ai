@@ -18,12 +18,14 @@ interface MemoryResponse {
   count: number;
 }
 
-const MEMORY_KIND_LABEL: Record<string, string> = {
-  fact: "Feit",
-  preference: "Voorkeur",
-  goal: "Doel",
-  context: "Context",
-};
+// Vertaalsleutel per soort herinnering — het label zelf komt uit t(), zodat het
+// geheugenblok dezelfde taal spreekt als de rest van de pagina.
+const MEMORY_KIND_KEY = {
+  fact: "memory_kind_fact",
+  preference: "memory_kind_preference",
+  goal: "memory_kind_goal",
+  context: "memory_kind_context",
+} as const;
 
 const MEMORY_KIND_COLOR: Record<string, string> = {
   fact: "text-blue-300 bg-blue-400/10 border-blue-400/20",
@@ -235,7 +237,7 @@ export default function AgentDetail() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5 text-primary" />
-              <span className="text-xs font-semibold">Geheugen</span>
+              <span className="text-xs font-semibold">{t("memory_title")}</span>
               {memory && memory.count > 0 && (
                 <span className="text-[10px] text-muted-foreground">({memory.count})</span>
               )}
@@ -244,7 +246,7 @@ export default function AgentDetail() {
               onClick={() => extractMutation.mutate()}
               disabled={extractMutation.isPending}
               className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
-              title="Onthoud nu uit dit gesprek"
+              title={t("memory_extract_now")}
               data-testid="button-extract-memory"
             >
               <RefreshCw className={cn("w-3.5 h-3.5", extractMutation.isPending && "animate-spin")} />
@@ -254,7 +256,7 @@ export default function AgentDetail() {
           {/* Persona-profiel (L3) */}
           {memory?.persona?.profile?.trim() && (
             <div className="glass-card rounded-xl p-3 mb-3 text-xs text-muted-foreground leading-relaxed" data-testid="memory-persona">
-              <span className="text-[10px] uppercase tracking-wide text-primary/80 font-semibold">Profiel</span>
+              <span className="text-[10px] uppercase tracking-wide text-primary/80 font-semibold">{t("memory_profile")}</span>
               <p className="mt-1">{memory.persona.profile}</p>
             </div>
           )}
@@ -262,7 +264,7 @@ export default function AgentDetail() {
           {/* Atomaire herinneringen (L1) */}
           {!memory || memory.count === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Nog geen geheugen. Na een paar berichten onthoudt {agent.name} automatisch je context.
+              {t("memory_empty", { name: agent.name })}
             </p>
           ) : (
             <div className="space-y-2">
@@ -273,13 +275,13 @@ export default function AgentDetail() {
                   data-testid={`memory-item-${m.id}`}
                 >
                   <span className={cn("px-1.5 py-0.5 rounded text-[10px] border flex-shrink-0 mt-0.5", MEMORY_KIND_COLOR[m.kind] || MEMORY_KIND_COLOR.fact)}>
-                    {MEMORY_KIND_LABEL[m.kind] || m.kind}
+                    {t(MEMORY_KIND_KEY[m.kind] ?? "memory_kind_fact")}
                   </span>
                   <span className="text-xs text-muted-foreground flex-1 leading-snug">{m.content}</span>
                   <button
                     onClick={() => forgetMutation.mutate(m.id)}
                     className="text-muted-foreground/40 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                    title="Vergeten"
+                    title={t("memory_forget")}
                     data-testid={`button-forget-${m.id}`}
                   >
                     <Trash2 className="w-3 h-3" />

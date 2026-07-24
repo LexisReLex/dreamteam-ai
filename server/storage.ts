@@ -168,6 +168,7 @@ export interface IStorage {
   // Agent persona (L3)
   getPersona(agentId: number): AgentPersona | undefined;
   upsertPersona(agentId: number, profile: string, memoryCount: number): AgentPersona;
+  deletePersona(agentId: number): void;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -369,6 +370,10 @@ export class Storage implements IStorage {
       .values({ agentId, profile, memoryCount, updatedAt: now })
       .returning()
       .get();
+  }
+
+  deletePersona(agentId: number): void {
+    db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).run();
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {

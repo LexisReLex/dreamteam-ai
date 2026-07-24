@@ -7,7 +7,7 @@ import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
-import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories } from "./memory";
+import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -384,7 +384,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (isNaN(agentId) || isNaN(memId)) return res.status(400).json({ error: "Ongeldig ID" });
     const mem = storage.getMemory(memId);
     if (!mem || mem.agentId !== agentId) return res.status(404).json({ error: "Herinnering niet gevonden" });
-    storage.deleteMemory(memId);
+    // Wist óók het profiel dat op dit feit gebouwd is; herbouw draait erachteraan.
+    void forgetMemory(agentId, memId);
     res.status(204).end();
   });
 
@@ -393,7 +394,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const agentId = parseInt(req.params.id);
     if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
     if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
-    storage.deleteMemoriesByAgent(agentId);
+    // Wist L1 + L3 én verzet de extractie-watermark, anders komen de gewiste
+    // feiten bij de eerstvolgende extractie gewoon weer terug.
+    forgetAll(agentId);
     res.status(204).end();
   });
 
