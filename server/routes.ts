@@ -4,10 +4,15 @@ import { storage } from "./storage";
 import { insertTaskSchema, insertMessageSchema, insertUserProfileSchema, insertLoopSchema } from "@shared/schema";
 import { z } from "zod";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget, getBudgetStatus } from "./ai";
+import { compress, getHeadroomStats } from "./headroom";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
 import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
+import { fetchAndAnalyze, SeoError } from "./seo";
+import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
+import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
+import { chooseProvider, isGroqEnabled, groqChat } from "./groq";
 
 // ─── Rate limiting (simple in-memory per IP) ──────────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -45,7 +50,7 @@ const SEED_AGENTS = [
   { name: "Nova", role: "Marketing Strateeg", description: "Nova is je go-to marketingexpert. Ze ontwikkelt gerichte campagnes, analyseert marktkansen en helpt je merk sterker te positioneren.", avatarColor: "#3b82f6", avatarIcon: "Megaphone", specialty: "Campagnestrategie & merkpositionering", status: "active" as const, tasksCompleted: 12, category: "marketing" },
   { name: "Rex", role: "Sales Coach", description: "Rex is een doorgewinterde salesstrateeg. Hij helpt je pipeline te optimaliseren, bezwaren te overwinnen en meer deals te sluiten.", avatarColor: "#8b5cf6", avatarIcon: "TrendingUp", specialty: "Pipeline optimalisatie & deal closing", status: "busy" as const, tasksCompleted: 8, category: "sales" },
   { name: "Mira", role: "Content Creator", description: "Mira maakt content die echt resoneert. Van blogs tot video-scripts, ze weet hoe ze jouw verhaal boeiend vertelt.", avatarColor: "#06b6d4", avatarIcon: "PenTool", specialty: "Storytelling & content strategie", status: "active" as const, tasksCompleted: 21, category: "content" },
-  { name: "Kai", role: "SEO Specialist", description: "Kai zorgt ervoor dat je gevonden wordt. Met diepgaande keyword-analyses en technische SEO brengt hij organisch verkeer naar je website.", avatarColor: "#22c55e", avatarIcon: "Search", specialty: "Keyword research & technische SEO", status: "idle" as const, tasksCompleted: 5, category: "marketing" },
+  { name: "Kai", role: "SEO Specialist", description: "Kai zorgt ervoor dat je gevonden wordt. Hij draait volledige SEO-audits (technical, content/E-E-A-T, schema, Core Web Vitals, GEO/AI-search) en levert een geprioriteerd actieplan. Kai kan live een URL scannen met de ingebouwde SEO-audit.", avatarColor: "#22c55e", avatarIcon: "Search", specialty: "SEO-audits, technische SEO & AI-search (GEO)", status: "idle" as const, tasksCompleted: 5, category: "marketing" },
   { name: "Zara", role: "Klantenservice", description: "Zara zet klanten centraal. Ze bouwt klantenservice-systemen, schrijft FAQ's en zorgt voor een uitstekende klantbeleving.", avatarColor: "#f97316", avatarIcon: "Headphones", specialty: "Klanttevredenheid & support processen", status: "active" as const, tasksCompleted: 16, category: "support" },
   { name: "Finn", role: "Financieel Adviseur", description: "Finn houdt je financiën scherp. Van cashflowprognoses tot investeringsadvies, hij geeft je financieel inzicht en rust.", avatarColor: "#eab308", avatarIcon: "BarChart2", specialty: "Cashflow management & financiële strategie", status: "idle" as const, tasksCompleted: 3, category: "finance" },
   { name: "Luna", role: "Social Media Manager", description: "Luna beheerst de kunst van social media. Ze bouwt communities, creëert viral content en vergroot je online aanwezigheid.", avatarColor: "#ec4899", avatarIcon: "Share2", specialty: "Community building & social strategie", status: "busy" as const, tasksCompleted: 19, category: "content" },
@@ -181,54 +186,69 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Save user message
     const userMsg = storage.createMessage({ agentId, role: "user", content });
 
-    // Get conversation history for context (last 10 messages)
+    // Get conversation history for context (last 10 messages). Elk bericht gaat
+    // eerst door de Headroom-compressielaag: ceremonie (whitespace, dubbele lege
+    // regels, JSON-opmaak) verdwijnt zodat de historie minder tokens kost, met
+    // hetzelfde signaal. Het huidige bericht comprimeren we ook.
     const history = storage.getMessages(agentId).slice(-10);
     const conversationHistory = history
       .filter(m => m.id !== userMsg.id)
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map(m => ({ role: m.role as "user" | "assistant", content: compress(m.content).text }));
 
     // Add current message
-    conversationHistory.push({ role: "user", content });
+    conversationHistory.push({ role: "user", content: compress(content).text });
 
-    // Schat tokens: ~4 chars per token, plus systeem-prompt overhead
-    const estimatedTokens = Math.ceil(content.length / 4) + 500;
-    if (!checkAndUpdateBudget(estimatedTokens)) {
-      const assistantMsg = storage.createMessage({ 
-        agentId, 
-        role: "assistant", 
-        content: "Het dagelijkse gebruik-limiet is bereikt. Probeer het morgen opnieuw of neem contact op via info@dreamteam.nl." 
-      });
-      return res.json([userMsg, assistantMsg]);
-    }
+    const basePrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
 
-    // Call Claude API
+    // ─── Agent Memory: relevante herinneringen ophalen (hybride recall) en binnen
+    // budget in de systeemprompt injecteren. Puur lokaal en synchroon, dus geen
+    // extra latency. Gaat mee naar élke provider — ook het gratis Groq-pad.
+    const recall = recallForChat(agentId, content);
+    const systemPrompt = basePrompt + recall.block;
+
+    // Schat tokens: ~4 chars per token, plus systeem-prompt overhead. Het
+    // geheugenblok telt mee, anders onderschat de budgetreservering het verbruik.
+    const estimatedTokens = Math.ceil((content.length + recall.block.length) / 4) + 500;
+
+    // Router bepaalt de provider. Groq is gratis (geen paid budget); het betaalde
+    // Claude-pad heeft budgetbewaking en is tevens het vangnet als Groq faalt.
+    const provider = chooseProvider(agent, isGroqEnabled());
     let assistantContent = "Ik ben momenteel niet beschikbaar. Probeer het later opnieuw.";
-    try {
-      const basePrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
 
-      // ─── Agent Memory: relevante herinneringen ophalen (hybride recall) en ───
-      // binnen budget in de systeemprompt injecteren. Lokaal + synchroon.
-      const recall = recallForChat(agentId, content);
-      const systemPrompt = basePrompt + recall.block;
-
+    // Claude-pad met budgetbewaking. Retourneert false alleen bij een API-fout.
+    const runClaude = async (): Promise<void> => {
+      if (!checkAndUpdateBudget(estimatedTokens)) {
+        assistantContent = "Het dagelijkse gebruik-limiet is bereikt. Probeer het morgen opnieuw of neem contact op via info@dreamteam.nl.";
+        return;
+      }
       const response = await anthropicClient.messages.create({
         model: "claude-haiku-4-5",
         max_tokens: 1024,
         system: systemPrompt,
         messages: conversationHistory,
       });
-
-      assistantContent = response.content[0].type === "text"
-        ? response.content[0].text
-        : assistantContent;
-
-      // Update teller met werkelijke tokens als beschikbaar
+      assistantContent = response.content[0].type === "text" ? response.content[0].text : assistantContent;
       if (response.usage) {
-        const actual = response.usage.input_tokens + response.usage.output_tokens;
-        reconcileBudget(actual, estimatedTokens); // correctie
+        reconcileBudget(response.usage.input_tokens + response.usage.output_tokens, estimatedTokens);
+      }
+    };
+
+    try {
+      if (provider === "groq") {
+        // Groq is gratis — geen budget consumeren. Faalt het, dan Claude als vangnet.
+        try {
+          const r = await groqChat({ system: systemPrompt, messages: conversationHistory });
+          assistantContent = r.content;
+          console.log(`[chat] agent ${agentId} via Groq (${r.model})`);
+        } catch (gErr: any) {
+          console.warn(`[chat] Groq faalde, val terug op Claude: ${gErr?.message || gErr}`);
+          await runClaude();
+        }
+      } else {
+        await runClaude();
       }
     } catch (err: any) {
-      console.error("Anthropic API error:", err?.message || err);
+      console.error("LLM API error:", err?.message || err);
       assistantContent = "Er is een fout opgetreden. Probeer het later opnieuw.";
     }
 
@@ -405,8 +425,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(getBudgetStatus());
   });
 
+  // ─── SEO-audit (keyless technische analyzer) ────────────────────────────────
+  // POST /api/seo/analyze { url } — haalt de pagina SSRF-veilig op en geeft een
+  // gescoord SEO-rapport terug. Guarded + rate-limited (dure outbound fetch).
+  const seoAnalyzeSchema = z.object({ url: z.string().min(1).max(2048) });
+  app.post("/api/seo/analyze", guard, rateLimit(10, 60 * 1000), async (req, res) => {
+    const result = seoAnalyzeSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "Geef een geldige URL op." });
+    try {
+      const report = await fetchAndAnalyze(result.data.url);
+      res.json(report);
+    } catch (err: any) {
+      if (err instanceof SeoError) {
+        const status = err.code === "UNSAFE_URL" ? 400 : 502;
+        return res.status(status).json({ error: err.message });
+      }
+      console.error("SEO-analyse fout:", err?.message || err);
+      res.status(500).json({ error: "SEO-analyse mislukt. Probeer een andere URL." });
+    }
+  });
+
+  // GET /api/headroom — cumulatieve besparing van de context-compressielaag.
+  // Elke bespaarde token is budget dat chat + loops níet verbruikt hebben.
+  app.get("/api/headroom", (req, res) => {
+    res.json(getHeadroomStats());
+  });
+
   // Start de in-proces loop-scheduler.
   startScheduler();
+
+  // GET /api/free-llm-providers — catalogus van gratis LLM API-providers.
+  // Statische, geverifieerde momentopname (zie shared/freeLlmProviders.ts).
+  app.get("/api/free-llm-providers", (req, res) => {
+    res.json({ summary: getProviderSummary(), providers: LLM_PROVIDERS });
+  });
+
+  // GET /api/model-router — adviserende routing per taakprofiel (keyless).
+  app.get("/api/model-router", (req, res) => {
+    res.json({ paidDefault: PAID_DEFAULT, recommendations: allRecommendations() });
+  });
+
+  // GET /api/agents/:id/routing — welke gratis provider past bij deze agent.
+  app.get("/api/agents/:id/routing", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Ongeldig agent ID" });
+    const agent = storage.getAgent(id);
+    if (!agent) return res.status(404).json({ error: "Agent niet gevonden" });
+    res.json({ paidDefault: PAID_DEFAULT, ...recommendForAgent(agent) });
+  });
 
   // GET /api/stats
   app.get("/api/stats", (req, res) => {
