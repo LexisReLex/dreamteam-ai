@@ -1,18 +1,40 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Send, CheckCircle, Clock, AlertCircle, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, Send, CheckCircle, Clock, AlertCircle, Loader2, Zap, Brain, RefreshCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { getLucideIcon } from "@/lib/icons";
 import SeoAuditPanel from "@/components/SeoAuditPanel";
 import ModelRoutingPanel from "@/components/ModelRoutingPanel";
-import type { Agent, Message, Task } from "@shared/schema";
+import type { Agent, Message, Task, AgentMemory, AgentPersona } from "@shared/schema";
 import { useLanguage } from "@/lib/LanguageContext";
 
 interface TaskWithAgent extends Task {
   agent?: Agent;
 }
+
+interface MemoryResponse {
+  persona: AgentPersona | null;
+  memories: AgentMemory[];
+  count: number;
+}
+
+// Vertaalsleutel per soort herinnering — het label zelf komt uit t(), zodat het
+// geheugenblok dezelfde taal spreekt als de rest van de pagina.
+const MEMORY_KIND_KEY = {
+  fact: "memory_kind_fact",
+  preference: "memory_kind_preference",
+  goal: "memory_kind_goal",
+  context: "memory_kind_context",
+} as const;
+
+const MEMORY_KIND_COLOR: Record<string, string> = {
+  fact: "text-blue-300 bg-blue-400/10 border-blue-400/20",
+  preference: "text-purple-300 bg-purple-400/10 border-purple-400/20",
+  goal: "text-green-300 bg-green-400/10 border-green-400/20",
+  context: "text-yellow-300 bg-yellow-400/10 border-yellow-400/20",
+};
 
 const STATUS_CFG = {
   pending:     { icon: Clock,        color: "text-yellow-400", bg: "bg-yellow-400/10" },
@@ -50,6 +72,16 @@ export default function AgentDetail() {
   const { data: allTasks } = useQuery<TaskWithAgent[]>({ queryKey: ["/api/tasks"] });
   const agentTasks = allTasks?.filter((t) => t.agentId === agentId) ?? [];
 
+  // ─── Agent Memory (gelaagd geheugen) ─────────────────────────────────────────
+  const { data: memory } = useQuery<MemoryResponse>({
+    queryKey: ["/api/agents", agentId, "memory"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/agents/${agentId}/memory`);
+      return res.json();
+    },
+  });
+  const invalidateMemory = () => qc.invalidateQueries({ queryKey: ["/api/agents", agentId, "memory"] });
+
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
       const res = await apiRequest("POST", "/api/messages", { agentId, role: "user", content });
@@ -57,7 +89,24 @@ export default function AgentDetail() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/messages", agentId] });
+      // Geheugen kan op de achtergrond bijgewerkt zijn — ververs even later.
+      setTimeout(invalidateMemory, 1500);
     },
+  });
+
+  const extractMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/agents/${agentId}/memory/extract`, {});
+      return res.json();
+    },
+    onSuccess: invalidateMemory,
+  });
+
+  const forgetMutation = useMutation({
+    mutationFn: async (memId: number) => {
+      await apiRequest("DELETE", `/api/agents/${agentId}/memory/${memId}`);
+    },
+    onSuccess: invalidateMemory,
   });
 
   useEffect(() => {
@@ -187,6 +236,66 @@ export default function AgentDetail() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Agent memory — gelaagd geheugen (persona L3 + herinneringen L1) */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <Brain className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-semibold">{t("memory_title")}</span>
+              {memory && memory.count > 0 && (
+                <span className="text-[10px] text-muted-foreground">({memory.count})</span>
+              )}
+            </div>
+            <button
+              onClick={() => extractMutation.mutate()}
+              disabled={extractMutation.isPending}
+              className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+              title={t("memory_extract_now")}
+              data-testid="button-extract-memory"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", extractMutation.isPending && "animate-spin")} />
+            </button>
+          </div>
+
+          {/* Persona-profiel (L3) */}
+          {memory?.persona?.profile?.trim() && (
+            <div className="glass-card rounded-xl p-3 mb-3 text-xs text-muted-foreground leading-relaxed" data-testid="memory-persona">
+              <span className="text-[10px] uppercase tracking-wide text-primary/80 font-semibold">{t("memory_profile")}</span>
+              <p className="mt-1">{memory.persona.profile}</p>
+            </div>
+          )}
+
+          {/* Atomaire herinneringen (L1) */}
+          {!memory || memory.count === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t("memory_empty", { name: agent.name })}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {memory.memories.slice(0, 8).map((m) => (
+                <div
+                  key={m.id}
+                  className="group flex items-start gap-2 p-2 rounded-lg bg-[rgba(255,255,255,0.02)]"
+                  data-testid={`memory-item-${m.id}`}
+                >
+                  <span className={cn("px-1.5 py-0.5 rounded text-[10px] border flex-shrink-0 mt-0.5", MEMORY_KIND_COLOR[m.kind] || MEMORY_KIND_COLOR.fact)}>
+                    {t(MEMORY_KIND_KEY[m.kind] ?? "memory_kind_fact")}
+                  </span>
+                  <span className="text-xs text-muted-foreground flex-1 leading-snug">{m.content}</span>
+                  <button
+                    onClick={() => forgetMutation.mutate(m.id)}
+                    className="text-muted-foreground/40 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                    title={t("memory_forget")}
+                    data-testid={`button-forget-${m.id}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>

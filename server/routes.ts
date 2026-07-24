@@ -8,6 +8,7 @@ import { compress, getHeadroomStats } from "./headroom";
 import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
+import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
@@ -197,9 +198,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Add current message
     conversationHistory.push({ role: "user", content: compress(content).text });
 
-    const systemPrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
-    // Schat tokens: ~4 chars per token, plus systeem-prompt overhead
-    const estimatedTokens = Math.ceil(content.length / 4) + 500;
+    const basePrompt = agentSystemPrompts[agentId] || `Je bent een behulpzame AI-assistent voor ondernemers.`;
+
+    // ─── Agent Memory: relevante herinneringen ophalen (hybride recall) en binnen
+    // budget in de systeemprompt injecteren. Puur lokaal en synchroon, dus geen
+    // extra latency. Gaat mee naar élke provider — ook het gratis Groq-pad.
+    const recall = recallForChat(agentId, content);
+    const systemPrompt = basePrompt + recall.block;
+
+    // Schat tokens: ~4 chars per token, plus systeem-prompt overhead. Het
+    // geheugenblok telt mee, anders onderschat de budgetreservering het verbruik.
+    const estimatedTokens = Math.ceil((content.length + recall.block.length) / 4) + 500;
 
     // Router bepaalt de provider. Groq is gratis (geen paid budget); het betaalde
     // Claude-pad heeft budgetbewaking en is tevens het vangnet als Groq faalt.
@@ -244,6 +253,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     const assistantMsg = storage.createMessage({ agentId, role: "assistant", content: assistantContent });
+
+    // ─── Agent Memory: destilleer nieuwe feiten uit de dialoog (asynchroon) ───
+    // Fire-and-forget zodat de chat-latency niet lijdt. De extractor beslist zelf
+    // of er genoeg nieuwe beurten zijn (EXTRACT_EVERY_TURNS) en bewaakt het budget.
+    void extractMemories(agentId).catch((err) =>
+      console.error("[memory] achtergrond-extractie faalde:", err?.message || err),
+    );
+
     return res.json([userMsg, assistantMsg]);
   });
 
@@ -352,6 +369,55 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
     if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
     res.json(storage.getLoopRuns(id, 20));
+  });
+
+  // ─── Agent Memory (gelaagd geheugen) ────────────────────────────────────────
+
+  // GET /api/agents/:id/memory — persona (L3) + herinneringen (L1), white-box.
+  app.get("/api/agents/:id/memory", (req, res) => {
+    const agentId = parseInt(req.params.id);
+    if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
+    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
+    const persona = storage.getPersona(agentId);
+    const memories = visibleMemories(agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json({ persona: persona ?? null, memories, count: memories.length });
+  });
+
+  // POST /api/agents/:id/memory/extract — forceer extractie + persona-synthese nu.
+  app.post("/api/agents/:id/memory/extract", guard, rateLimit(10, 60 * 1000), async (req, res) => {
+    const agentId = parseInt(String(req.params.id));
+    if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
+    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
+    const created = await extractMemories(agentId, { force: true });
+    await maybeSynthesizePersona(agentId, { force: created.length > 0 });
+    res.json({
+      created,
+      persona: storage.getPersona(agentId) ?? null,
+      memories: visibleMemories(agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    });
+  });
+
+  // DELETE /api/agents/:id/memory/:memId — vergeet één herinnering.
+  app.delete("/api/agents/:id/memory/:memId", (req, res) => {
+    const agentId = parseInt(req.params.id);
+    const memId = parseInt(req.params.memId);
+    if (isNaN(agentId) || isNaN(memId)) return res.status(400).json({ error: "Ongeldig ID" });
+    const mem = storage.getMemory(memId);
+    if (!mem || mem.agentId !== agentId) return res.status(404).json({ error: "Herinnering niet gevonden" });
+    // Wist óók het profiel dat op dit feit gebouwd is; herbouw draait erachteraan.
+    void forgetMemory(agentId, memId);
+    res.status(204).end();
+  });
+
+  // DELETE /api/agents/:id/memory — wis het volledige geheugen van deze agent.
+  app.delete("/api/agents/:id/memory", (req, res) => {
+    const agentId = parseInt(req.params.id);
+    if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
+    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
+    // Wist L1 + L3 én verzet de extractie-watermark, anders komen de gewiste
+    // feiten bij de eerstvolgende extractie gewoon weer terug.
+    forgetAll(agentId);
+    res.status(204).end();
   });
 
   // GET /api/budget — huidige token-budgetstatus (governance)

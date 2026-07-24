@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun } from "@shared/schema";
+import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, AgentMemory, InsertMemory, AgentPersona } from "@shared/schema";
 
 // Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
 // persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
@@ -12,6 +12,37 @@ import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, User
 const DB_PATH = process.env.DB_PATH || "data.db";
 // Zorg dat de map bestaat (bv. een net gemount /data-volume met subdir).
 try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch { /* map bestaat al of is cwd */ }
+
+// ─── Opstartregel: waar landt de database? ────────────────────────────────────
+// Zonder DB_PATH schrijft SQLite naar de containermap en is alles vluchtig. Dat
+// gaat vandaag stíl mis: build, healthcheck en seed slagen alle drie, en pas na
+// een redeploy blijkt dat agents, loops, runs, herinneringen en profielen weg
+// zijn. Eén regel bij het opstarten maakt dat meteen zichtbaar in de logs.
+export interface DbPathNotice {
+  level: "log" | "warn";
+  message: string;
+}
+
+/** Puur en testbaar: welke opstartregel hoort bij dit pad en deze omgeving? */
+export function describeDbPath(path: string, explicit: boolean, nodeEnv?: string): DbPathNotice | null {
+  if (path === ":memory:") return null; // tests — geen ruis
+  if (explicit) {
+    return { level: "log", message: `[storage] SQLite: ${path} (pad uit DB_PATH)` };
+  }
+  if (nodeEnv === "production") {
+    return {
+      level: "warn",
+      message:
+        `[storage] SQLite: ${path} — VLUCHTIG. DB_PATH is niet gezet, dus de database staat in de ` +
+        `containermap en verdwijnt bij elke redeploy of restart (agents, loops, runs, herinneringen ` +
+        `en profielen). Mount een volume op /data en zet DB_PATH=/data/dreamteam.db — zie docs/deployment.md §2.`,
+    };
+  }
+  return { level: "log", message: `[storage] SQLite: ${path} (lokaal — DB_PATH niet gezet)` };
+}
+
+const dbNotice = describeDbPath(DB_PATH, Boolean(process.env.DB_PATH), process.env.NODE_ENV);
+if (dbNotice) console[dbNotice.level](dbNotice.message);
 
 const sqlite = new Database(DB_PATH);
 export const db = drizzle(sqlite, { schema });
@@ -91,6 +122,32 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS agent_memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    layer TEXT NOT NULL DEFAULT 'L1',
+    kind TEXT NOT NULL DEFAULT 'fact',
+    content TEXT NOT NULL,
+    keywords TEXT NOT NULL DEFAULT '',
+    salience INTEGER NOT NULL DEFAULT 50,
+    source_message_id INTEGER,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_memories_agent ON agent_memories (agent_id);
+
+  CREATE TABLE IF NOT EXISTS agent_personas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    profile TEXT NOT NULL DEFAULT '',
+    memory_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_personas_agent ON agent_personas (agent_id);
+
 `);
 
 // Safe migration: add language column if not exists
@@ -129,6 +186,20 @@ export interface IStorage {
   // Loop runs
   getLoopRuns(loopId: number, limit?: number): LoopRun[];
   createLoopRun(data: InsertLoopRun): LoopRun;
+
+  // Agent memory (L1 atoms)
+  getMemories(agentId: number): AgentMemory[];
+  getMemory(id: number): AgentMemory | undefined;
+  createMemory(data: InsertMemory): AgentMemory;
+  updateMemory(id: number, data: Partial<AgentMemory>): AgentMemory | undefined;
+  deleteMemory(id: number): void;
+  deleteMemoriesByAgent(agentId: number): void;
+  lastProcessedMessageId(agentId: number): number;
+
+  // Agent persona (L3)
+  getPersona(agentId: number): AgentPersona | undefined;
+  upsertPersona(agentId: number, profile: string, memoryCount: number): AgentPersona;
+  deletePersona(agentId: number): void;
 
   // Stats
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
@@ -250,6 +321,90 @@ export class Storage implements IStorage {
   createLoopRun(data: InsertLoopRun): LoopRun {
     const now = new Date().toISOString();
     return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+  }
+
+  // ─── Agent memory (L1 atoms) ─────────────────────────────────────────────────
+  getMemories(agentId: number): AgentMemory[] {
+    return db
+      .select()
+      .from(schema.agentMemories)
+      .where(eq(schema.agentMemories.agentId, agentId))
+      .all();
+  }
+
+  getMemory(id: number): AgentMemory | undefined {
+    return db.select().from(schema.agentMemories).where(eq(schema.agentMemories.id, id)).get();
+  }
+
+  createMemory(data: InsertMemory): AgentMemory {
+    const now = new Date().toISOString();
+    return db
+      .insert(schema.agentMemories)
+      .values({
+        agentId: data.agentId,
+        layer: data.layer ?? "L1",
+        kind: data.kind ?? "fact",
+        content: data.content,
+        keywords: data.keywords ?? "",
+        salience: data.salience ?? 50,
+        sourceMessageId: data.sourceMessageId ?? null,
+        createdAt: now,
+      })
+      .returning()
+      .get();
+  }
+
+  updateMemory(id: number, data: Partial<AgentMemory>): AgentMemory | undefined {
+    const { id: _ignore, ...rest } = data;
+    if (Object.keys(rest).length > 0) {
+      db.update(schema.agentMemories).set(rest).where(eq(schema.agentMemories.id, id)).run();
+    }
+    return this.getMemory(id);
+  }
+
+  deleteMemory(id: number): void {
+    db.delete(schema.agentMemories).where(eq(schema.agentMemories.id, id)).run();
+  }
+
+  deleteMemoriesByAgent(agentId: number): void {
+    db.delete(schema.agentMemories).where(eq(schema.agentMemories.agentId, agentId)).run();
+    db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).run();
+  }
+
+  /** Hoogste message-id dat al in een extractie is verwerkt (0 als er niets is). */
+  lastProcessedMessageId(agentId: number): number {
+    const mems = this.getMemories(agentId);
+    let max = 0;
+    for (const m of mems) {
+      if (m.sourceMessageId != null && m.sourceMessageId > max) max = m.sourceMessageId;
+    }
+    return max;
+  }
+
+  // ─── Agent persona (L3) ──────────────────────────────────────────────────────
+  getPersona(agentId: number): AgentPersona | undefined {
+    return db.select().from(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).get();
+  }
+
+  upsertPersona(agentId: number, profile: string, memoryCount: number): AgentPersona {
+    const now = new Date().toISOString();
+    const existing = this.getPersona(agentId);
+    if (existing) {
+      db.update(schema.agentPersonas)
+        .set({ profile, memoryCount, updatedAt: now })
+        .where(eq(schema.agentPersonas.agentId, agentId))
+        .run();
+      return this.getPersona(agentId)!;
+    }
+    return db
+      .insert(schema.agentPersonas)
+      .values({ agentId, profile, memoryCount, updatedAt: now })
+      .returning()
+      .get();
+  }
+
+  deletePersona(agentId: number): void {
+    db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).run();
   }
 
   getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {

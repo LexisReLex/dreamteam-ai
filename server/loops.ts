@@ -2,6 +2,7 @@ import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { anthropicClient, checkAndUpdateBudget, reconcileBudget } from "./ai";
 import { compressState } from "./headroom";
 import { getAgentSystemPrompt } from "./prompts";
+import { withPersona } from "./memory";
 import { storage } from "./storage";
 import type { Loop, LoopRun } from "@shared/schema";
 
@@ -142,7 +143,10 @@ async function executeLoop(loop: Loop): Promise<LoopRun> {
     });
   }
 
-  const systemPrompt = getAgentSystemPrompt(loop.agentId);
+  // Loop-STATE is táák-geheugen; het persona-profiel (uit de chat) is
+  // gebruikers-geheugen. We geven de maker beide mee: wie is de gebruiker + waar
+  // stond deze loop. withPersona laat de prompt ongemoeid als er geen persona is.
+  const systemPrompt = withPersona(loop.agentId, getAgentSystemPrompt(loop.agentId));
   let tokensUsed = 0;
 
   try {
