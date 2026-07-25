@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { cosineSim, embeddingsEnabled, embed, _clearEmbeddingCache } from "./embeddings";
+import { cosineSim, embeddingsEnabled, embeddingsInfo, embed, _clearEmbeddingCache } from "./embeddings";
 
 afterEach(() => {
   delete process.env.EMBEDDINGS_API_KEY;
@@ -46,6 +46,21 @@ describe("embeddingsEnabled", () => {
   it("is aan zodra er een echte key staat", () => {
     process.env.EMBEDDINGS_API_KEY = "sk-test-123";
     expect(embeddingsEnabled()).toBe(true);
+  });
+});
+
+describe("embeddingsInfo", () => {
+  it("rapporteert enabled + model, nooit de key", () => {
+    process.env.EMBEDDINGS_API_KEY = "sk-geheim-123";
+    process.env.EMBEDDINGS_MODEL = "mijn-model";
+    const info = embeddingsInfo();
+    expect(info).toEqual({ enabled: true, model: "mijn-model" });
+    expect(JSON.stringify(info)).not.toContain("geheim");
+    delete process.env.EMBEDDINGS_MODEL;
+  });
+
+  it("is enabled=false zonder key, met het default-model", () => {
+    expect(embeddingsInfo().enabled).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ import { agentSystemPrompts } from "./prompts";
 import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
 import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
+import { embeddingsInfo, embed } from "./embeddings";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
@@ -423,6 +424,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/budget — huidige token-budgetstatus (governance)
   app.get("/api/budget", (req, res) => {
     res.json(getBudgetStatus());
+  });
+
+  // GET /api/embeddings/health — verifieert of de (optionele) semantische recall
+  // écht werkt. Zonder key: {enabled:false}. Met key: doet één echte embed-call
+  // en rapporteert of het endpoint antwoordt (ok) + het model + de dimensies.
+  // Zo is een deploy hard te verifiëren met live bewijs i.p.v. "staat aan, denk ik".
+  // De key zelf lekt nooit in het antwoord.
+  app.get("/api/embeddings/health", async (_req, res) => {
+    const info = embeddingsInfo();
+    if (!info.enabled) return res.json({ enabled: false });
+    try {
+      const vecs = await embed(["ping"]);
+      if (!vecs) return res.json({ enabled: true, ok: false, model: info.model });
+      res.json({ enabled: true, ok: true, model: info.model, dimensions: vecs[0].length });
+    } catch (err: any) {
+      res.json({ enabled: true, ok: false, model: info.model, error: err?.message || String(err) });
+    }
   });
 
   // ─── SEO-audit (keyless technische analyzer) ────────────────────────────────

@@ -12,8 +12,14 @@ wat onze Agent Memory (#19) al in TypeScript doet. Wél geleend: het kernvoordee
 **semantische recall**, key-gated ingebouwd (spiegelt het Groq-pad). Zonder
 `EMBEDDINGS_API_KEY` verandert er niets; met een gratis key wordt recall slimmer.
 Volledig verhaal + verantwoording: **`docs/mempalace.md`**. Status: typecheck
-schoon, **138 tests groen** (incl. end-to-end test van de ingeschakelde recall),
-build schoon. Aanzetten = jouw oranje licht (een key).
+schoon, **140 tests groen** (incl. end-to-end test van de ingeschakelde recall),
+build schoon.
+
+**Deployen = key plaatsen + redeploy.** Uitvoerbare gids voor Cowork/terminal:
+**`docs/DEPLOY-HANDOVER-embeddings.md`** — provider + key, env's, redeploy, en
+verificatie via het nieuwe endpoint `GET /api/embeddings/health` (geeft
+`{"enabled":true,"ok":true,...}` als het écht werkt; lekt de key niet). Aanzetten
+blijft jouw oranje licht (een key).
 
 ---
 

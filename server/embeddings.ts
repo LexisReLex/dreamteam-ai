@@ -31,6 +31,11 @@ export function embeddingsEnabled(): boolean {
   return !!apiKey();
 }
 
+/** Config-overzicht voor het health-endpoint (nooit de key zelf). */
+export function embeddingsInfo(): { enabled: boolean; model: string } {
+  return { enabled: embeddingsEnabled(), model: model() };
+}
+
 function baseUrl(): string {
   return (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
 }
