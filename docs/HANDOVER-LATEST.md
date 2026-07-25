@@ -2,7 +2,27 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-22 · **Branch:** `claude/free-llm-api-resources-lu1ta3` (PR's gemerged naar `main`)
+**Laatst bijgewerkt:** 2026-07-25 · **Branch:** `claude/mempalace-repo-ari3y3`
+
+## MemPalace — onderzocht & besloten (2026-07-25)
+
+Vraag: *"MemPalace onderzoeken/installeren"* (github.com/MemPalace/mempalace).
+**Besluit: niet installeren** — het is een Python-CLI die grotendeels dupliceert
+wat onze Agent Memory (#19) al in TypeScript doet. Wél geleend: het kernvoordeel
+**semantische recall**, key-gated ingebouwd (spiegelt het Groq-pad). Zonder
+`EMBEDDINGS_API_KEY` verandert er niets; met een gratis key wordt recall slimmer.
+Volledig verhaal + verantwoording: **`docs/mempalace.md`**. Status: typecheck
+schoon, **140 tests groen** (incl. end-to-end test van de ingeschakelde recall),
+build schoon.
+
+**Deployen = key plaatsen + redeploy.** Uitvoerbare gids voor Cowork/terminal:
+**`docs/DEPLOY-HANDOVER-embeddings.md`** — provider + key, env's, redeploy, en
+verificatie via het nieuwe endpoint `GET /api/embeddings/health` (geeft
+`{"enabled":true,"ok":true,...}` als het écht werkt; lekt de key niet). Aanzetten
+blijft jouw oranje licht (een key).
+
+---
+
 
 ## Waar we staan — Fase 1 klaar (kostenefficiënte routing)
 

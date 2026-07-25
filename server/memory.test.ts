@@ -7,6 +7,7 @@ import {
   buildMemoryBlock,
   parseExtractedMemories,
   dedupeAgainstExisting,
+  SEMANTIC_CANDIDATE_MIN,
 } from "./memory";
 import type { AgentMemory } from "@shared/schema";
 
@@ -104,6 +105,40 @@ describe("selectMemories", () => {
 
   it("geeft niets terug bij een leeg geheugen", () => {
     expect(selectMemories([], "vraag")).toEqual([]);
+  });
+});
+
+describe("selectMemories — semantische leg (key-gated recall)", () => {
+  // Query raakt lexicaal alleen "webshop"; "auto" heeft geen woord-overlap met
+  // "wagen" en "belasting" is niet relevant.
+  const memories = [
+    mem({ id: 1, content: "De gebruiker runt een webshop", keywords: "webshop schoenen", createdAt: "2026-01-01T00:00:00.000Z" }),
+    mem({ id: 2, content: "Rijdt in een elektrische wagen", keywords: "wagen elektrisch", createdAt: "2026-02-01T00:00:00.000Z" }),
+    mem({ id: 3, content: "Doet elk kwartaal de belastingaangifte", keywords: "belasting kwartaal", createdAt: "2026-03-01T00:00:00.000Z" }),
+  ];
+  const query = "hoe gaat het met mijn webshop en mijn auto?";
+
+  it("zonder semantic-map: alleen de lexicale treffer komt mee (geen regressie)", () => {
+    const ids = selectMemories(memories, query).map((m) => m.id);
+    expect(ids).toContain(1); // webshop — lexicaal
+    expect(ids).not.toContain(2); // wagen — geen woord-overlap, dus buiten beeld
+  });
+
+  it("met semantic-map: een sterk verwante herinnering zónder woord-overlap komt er wél bij", () => {
+    // "auto" ~ "wagen": hoge similariteit; "belasting" laag (onder de drempel).
+    const semantic = new Map<number, number>([
+      [1, 0.5],
+      [2, 0.86],
+      [3, 0.1],
+    ]);
+    const ids = selectMemories(memories, query, undefined, undefined, semantic).map((m) => m.id);
+    expect(ids).toContain(1); // lexicale treffer blijft
+    expect(ids).toContain(2); // semantisch binnengehaald ondanks 0 woord-overlap
+    expect(ids).not.toContain(3); // onder SEMANTIC_CANDIDATE_MIN → geen semantische ruis
+  });
+
+  it("de kandidaat-drempel ligt bewust hoog (behoudend)", () => {
+    expect(SEMANTIC_CANDIDATE_MIN).toBeGreaterThanOrEqual(0.7);
   });
 });
 

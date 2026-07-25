@@ -91,7 +91,7 @@ describe("vergeten (L1 + L3)", () => {
     expect(visibleMemories(agentId).some((m) => m.content.includes("scheiding"))).toBe(false);
     expect(storage.getPersona(agentId)?.profile ?? "").not.toContain("scheiding");
 
-    const recall = recallForChat(agentId, "waar was ik ook alweer mee bezig");
+    const recall = await recallForChat(agentId, "waar was ik ook alweer mee bezig");
     expect(recall.block).not.toContain("scheiding");
     // De overgebleven feiten zitten er nog wél in — we gooien niet te veel weg.
     expect(storage.getPersona(agentId)?.profile).toContain("webshop");
@@ -106,7 +106,7 @@ describe("vergeten (L1 + L3)", () => {
 
     expect(visibleMemories(agentId).length).toBe(0);
     expect(storage.getPersona(agentId)).toBeUndefined();
-    const recall = recallForChat(agentId, "hoi");
+    const recall = await recallForChat(agentId, "hoi");
     expect(recall.persona).toBe(false);
     expect(recall.block).toBe("");
   });

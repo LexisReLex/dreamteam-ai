@@ -4,6 +4,7 @@ import { getAgentSystemPrompt } from "./prompts";
 import { storage } from "./storage";
 import type { AgentMemory, InsertMemory } from "@shared/schema";
 import { MEMORY_KINDS } from "@shared/schema";
+import { embeddingsEnabled, embed, cosineSim } from "./embeddings";
 
 // ─── Agent Memory — gelaagd geheugen (TencentDB Agent Memory, toegepast) ───────
 //
@@ -14,9 +15,12 @@ import { MEMORY_KINDS } from "@shared/schema";
 // binnen een budget — in de systeemprompt. Zo onthoudt de agent voorkeuren en
 // context tussen gesprekken zonder de volledige historie mee te sturen.
 //
-// Bewust zonder externe vector-DB of embedding-endpoint: net als de "local,
+// Standaard zonder externe vector-DB of embedding-endpoint: net als de "local,
 // zero-dependency" modus van TencentDB Agent Memory draait alles op de
-// bestaande SQLite + een lichte lexicale ranker.
+// bestaande SQLite + een lichte lexicale ranker. OPTIONEEL (key-gated, zie
+// `server/embeddings.ts`) komt daar een SEMANTISCHE recall-leg bij — geleend van
+// MemPalace — die relevante herinneringen ook zonder woord-overlap vindt. Zonder
+// key verandert er niets; recall blijft dan puur lokaal en synchroon.
 
 const MODEL = "claude-haiku-4-5";
 
@@ -87,13 +91,21 @@ export interface ScoredMemory {
   keyword: number;
 }
 
+// Drempel waarboven een semantische treffer een herinnering als kandidaat laat
+// meetellen, óók zonder énige keyword-overlap. Bewust behoudend: alleen echt
+// verwante herinneringen mogen zo binnenkomen, geen semantische ruis.
+export const SEMANTIC_CANDIDATE_MIN = 0.72;
+
 /**
  * Kernselectie (puur, testbaar): hybride recall over de herinneringen.
- * 1. keyword-ranglijst  (lexicale relevantie t.o.v. de query)
+ * 1. keyword-ranglijst   (lexicale relevantie t.o.v. de query)
  * 2. recentheids-ranglijst (nieuwste eerst)
+ * 3. semantische ranglijst (cosine-similariteit) — OPTIONEEL, alleen als er een
+ *    `semantic`-map is meegegeven (embeddings actief). Zonder die map gedraagt
+ *    deze functie zich exact zoals voorheen — geen regressie.
  * → samengevoegd met RRF, daarna gebroken met salience.
- * Herinneringen zonder énige keyword-treffer komen alleen mee als "warme start"
- * wanneer de query leeg/onbekend is; anders filteren we ruis eruit.
+ * Herinneringen zonder énige keyword- of semantische treffer komen alleen mee
+ * als "warme start" wanneer de query leeg/onbekend is; anders filteren we ruis eruit.
  * Ten slotte kappen we op een injectiebudget (tekens) en op top-K.
  */
 export function selectMemories(
@@ -101,6 +113,7 @@ export function selectMemories(
   query: string,
   budgetChars = INJECTION_BUDGET_CHARS,
   topK = RECALL_TOP_K,
+  semantic?: Map<number, number>,
 ): AgentMemory[] {
   if (memories.length === 0) return [];
   const queryTokens = tokenize(query);
@@ -109,12 +122,13 @@ export function selectMemories(
     .map((m) => ({ id: m.id, s: keywordScore(queryTokens, `${m.content} ${m.keywords}`) }))
     .sort((a, b) => b.s - a.s);
   const keywordScores = new Map(keyword.map((x) => [x.id, x.s]));
+  const semOf = (id: number) => semantic?.get(id) ?? 0;
 
-  // Kandidaten: alles met een keyword-treffer. Zonder query (of geen treffers)
-  // vallen we terug op recentheid — vergelijkbaar met een "warmup"-recall.
+  // Kandidaten: alles met een keyword-treffer óf een sterke semantische treffer.
+  // Zonder query (of geen treffers) vallen we terug op recentheid — een "warmup"-recall.
   const hasQuery = queryTokens.length > 0;
   const candidates = hasQuery
-    ? memories.filter((m) => (keywordScores.get(m.id) || 0) > 0)
+    ? memories.filter((m) => (keywordScores.get(m.id) || 0) > 0 || semOf(m.id) >= SEMANTIC_CANDIDATE_MIN)
     : [...memories];
 
   const pool = candidates.length > 0 ? candidates : [...memories].sort(byRecency).slice(0, topK);
@@ -125,7 +139,17 @@ export function selectMemories(
     .map((m) => m.id);
   const recencyRanking = pool.slice().sort(byRecency).map((m) => m.id);
 
-  const fused = rrfFuse([keywordRanking, recencyRanking]);
+  const rankings = [keywordRanking, recencyRanking];
+  if (semantic) {
+    const semanticRanking = pool
+      .slice()
+      .filter((m) => semOf(m.id) > 0)
+      .sort((a, b) => semOf(b.id) - semOf(a.id))
+      .map((m) => m.id);
+    if (semanticRanking.length > 0) rankings.push(semanticRanking);
+  }
+
+  const fused = rrfFuse(rankings);
 
   const ranked = pool
     .slice()
@@ -273,15 +297,39 @@ export interface RecallResult {
 }
 
 /**
- * Haalt persona + relevante herinneringen op en bouwt het injectieblok.
- * Puur lokaal (SQLite + lexicale ranker), dus geen recall-timeout nodig zoals
- * bij een remote embedding-endpoint. Markeert de gebruikte herinneringen
- * (useCount / lastUsedAt) voor toekomstige weging en observability.
+ * Berekent cosine-similariteit van de query t.o.v. elke herinnering via
+ * embeddings. Retourneert een map id→similariteit, of `undefined` als
+ * embeddings uitstaan of het endpoint faalt/timeout — de recall valt dan
+ * naadloos terug op de lexicale leg. Puur additief: kan de recall alleen
+ * verrijken, nooit breken.
  */
-export function recallForChat(agentId: number, query: string): RecallResult {
+async function semanticSimilarities(
+  query: string,
+  memories: AgentMemory[],
+): Promise<Map<number, number> | undefined> {
+  if (!embeddingsEnabled() || !query.trim() || memories.length === 0) return undefined;
+  // Query eerst, daarna de herinneringen — in één call (herinneringen zijn gecached).
+  const vectors = await embed([query, ...memories.map((m) => `${m.content} ${m.keywords}`.trim())]);
+  if (!vectors || vectors.length !== memories.length + 1) return undefined;
+  const [queryVec, ...memVecs] = vectors;
+  const sims = new Map<number, number>();
+  memories.forEach((m, i) => sims.set(m.id, cosineSim(queryVec, memVecs[i])));
+  return sims;
+}
+
+/**
+ * Haalt persona + relevante herinneringen op en bouwt het injectieblok.
+ * Lexicale recall is puur lokaal en synchroon. Staat er een embeddings-key, dan
+ * komt er een semantische leg bij (met eigen timeout in `embed`); faalt die,
+ * dan valt recall terug op puur lexicaal, zodat de chat nooit blokkeert.
+ * Markeert de gebruikte herinneringen (useCount / lastUsedAt) voor toekomstige
+ * weging en observability.
+ */
+export async function recallForChat(agentId: number, query: string): Promise<RecallResult> {
   const persona = storage.getPersona(agentId);
   const all = visibleMemories(agentId);
-  const selected = selectMemories(all, query);
+  const semantic = await semanticSimilarities(query, all);
+  const selected = selectMemories(all, query, INJECTION_BUDGET_CHARS, RECALL_TOP_K, semantic);
 
   const nowIso = new Date().toISOString();
   for (const m of selected) {
