@@ -2,7 +2,20 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-22 · **Branch:** `claude/free-llm-api-resources-lu1ta3` (PR's gemerged naar `main`)
+**Laatst bijgewerkt:** 2026-07-25 · **Branch:** `claude/mempalace-repo-ari3y3`
+
+## MemPalace — onderzocht & besloten (2026-07-25)
+
+Vraag: *"MemPalace onderzoeken/installeren"* (github.com/MemPalace/mempalace).
+**Besluit: niet installeren** — het is een Python-CLI die grotendeels dupliceert
+wat onze Agent Memory (#19) al in TypeScript doet. Wél geleend: het kernvoordeel
+**semantische recall**, key-gated ingebouwd (spiegelt het Groq-pad). Zonder
+`EMBEDDINGS_API_KEY` verandert er niets; met een gratis key wordt recall slimmer.
+Volledig verhaal + verantwoording: **`docs/mempalace.md`**. Status: typecheck
+schoon, **134 tests groen**, build schoon. Aanzetten = jouw oranje licht (een key).
+
+---
+
 
 ## Waar we staan — Fase 1 klaar (kostenefficiënte routing)
 

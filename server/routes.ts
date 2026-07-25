@@ -203,7 +203,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // ─── Agent Memory: relevante herinneringen ophalen (hybride recall) en binnen
     // budget in de systeemprompt injecteren. Puur lokaal en synchroon, dus geen
     // extra latency. Gaat mee naar élke provider — ook het gratis Groq-pad.
-    const recall = recallForChat(agentId, content);
+    const recall = await recallForChat(agentId, content);
     const systemPrompt = basePrompt + recall.block;
 
     // Schat tokens: ~4 chars per token, plus systeem-prompt overhead. Het

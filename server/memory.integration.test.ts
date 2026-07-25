@@ -125,7 +125,7 @@ describe("geheugen-bedrading (integratie)", () => {
     await extractMemories(agentId, { force: true });
     await maybeSynthesizePersona(agentId, { force: true });
 
-    const recall = recallForChat(agentId, "hoe verhoog ik de omzet van mijn webshop?");
+    const recall = await recallForChat(agentId, "hoe verhoog ik de omzet van mijn webshop?");
     expect(recall.block).toContain("GEHEUGEN");
     expect(recall.block).toContain("webshop"); // relevante herinnering opgehaald
     expect(recall.persona).toBe(true);
