@@ -12,7 +12,8 @@ wat onze Agent Memory (#19) al in TypeScript doet. Wél geleend: het kernvoordee
 **semantische recall**, key-gated ingebouwd (spiegelt het Groq-pad). Zonder
 `EMBEDDINGS_API_KEY` verandert er niets; met een gratis key wordt recall slimmer.
 Volledig verhaal + verantwoording: **`docs/mempalace.md`**. Status: typecheck
-schoon, **134 tests groen**, build schoon. Aanzetten = jouw oranje licht (een key).
+schoon, **138 tests groen** (incl. end-to-end test van de ingeschakelde recall),
+build schoon. Aanzetten = jouw oranje licht (een key).
 
 ---
 

@@ -69,7 +69,11 @@ spiegelt bewust het al aanwezige **Groq-pad**: uit-standaard, additief, met fall
 ### Verificatie (bewijs)
 
 - `npm run check` — typecheck schoon.
-- `npm test` — **134 tests groen** (was 87 vóór #19-lijn; +47 inclusief de nieuwe).
+- `npm test` — **138 tests groen** (was 87 vóór deze lijn). Dekt óók de
+  INGESCHAKELDE path end-to-end: een integratietest met gemockt endpoint bewijst
+  dat recall mét key een semantisch verwante herinnering ("wagen" bij query
+  "auto") ophaalt die lexicaal buiten beeld blijft, en ruis onder de drempel
+  ("belasting") weert.
 - `npm run build` — client + server bundelen schoon.
 
 Zonder key is dit dus een **no-op** (bewezen door de disabled-tests): de live demo

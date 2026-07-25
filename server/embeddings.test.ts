@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { cosineSim, embeddingsEnabled, embed, _clearEmbeddingCache } from "./embeddings";
 
 afterEach(() => {
   delete process.env.EMBEDDINGS_API_KEY;
   _clearEmbeddingCache();
+  vi.unstubAllGlobals();
 });
 
 describe("cosineSim", () => {
@@ -56,5 +57,40 @@ describe("embed", () => {
   it("geeft null voor een lege inputlijst", async () => {
     process.env.EMBEDDINGS_API_KEY = "sk-test-123";
     expect(await embed([])).toBeNull();
+  });
+});
+
+describe("embed — netwerkpad (gemockt endpoint)", () => {
+  beforeEach(() => {
+    process.env.EMBEDDINGS_API_KEY = "sk-test-123";
+    _clearEmbeddingCache();
+  });
+
+  it("haalt vectoren op en cachet ze — een tweede call doet geen fetch meer", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1, 2, 3] }] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await embed(["hallo"])).toEqual([[1, 2, 3]]);
+    expect(await embed(["hallo"])).toEqual([[1, 2, 3]]); // uit cache
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("valt terug op null bij een niet-ok status (chat blijft werken via lexicaal)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 429, json: async () => ({}) })),
+    );
+    expect(await embed(["x"])).toBeNull();
+  });
+
+  it("valt terug op null bij een onverwacht antwoordformaat", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ data: "geen array" }) })),
+    );
+    expect(await embed(["x"])).toBeNull();
   });
 });

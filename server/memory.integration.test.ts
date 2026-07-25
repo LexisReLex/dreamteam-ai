@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ─── Integratietest: de volledige geheugen-BEDRADING ───────────────────────────
 // De pure ranker/parse-functies zijn los getest in memory.test.ts. Hier bewijzen
@@ -46,6 +46,7 @@ vi.mock("./ai", () => ({
 }));
 
 import { extractMemories, maybeSynthesizePersona, recallForChat, visibleMemories, MARKER_CONTENT } from "./memory";
+import { _clearEmbeddingCache } from "./embeddings";
 import { storage } from "./storage";
 
 function seedAgent(): number {
@@ -161,5 +162,63 @@ describe("geheugen-bedrading (integratie)", () => {
     expect(createMock).not.toHaveBeenCalled();
     // Het interne watermark-baken lekt niet naar de zichtbare herinneringen.
     expect(visibleMemories(agentId).every((m) => m.content !== MARKER_CONTENT)).toBe(true);
+  });
+});
+
+// ─── Semantische recall (key-gated) — de volledige INGESCHAKELDE path ──────────
+// Bewijst end-to-end dat recall MET een embeddings-key een herinnering ophaalt
+// die puur lexicaal (zonder woord-overlap) buiten beeld zou blijven. Het
+// endpoint is gemockt (deterministische vectoren, geen netwerk): "auto" en
+// "wagen" delen richting, de rest staat er orthogonaal op.
+describe("semantische recall — ingeschakelde path (gemockt endpoint)", () => {
+  // Concept-signatuur: auto/wagen delen twee dimensies, zodat een 2-concept-query
+  // toch ≥ drempel scoort tegen een 1-concept-herinnering.
+  function fakeVec(s: string): number[] {
+    const t = s.toLowerCase();
+    const auto = /auto|wagen|elektrisch/.test(t) ? 1 : 0;
+    const omzet = /omzet|verdubbel/.test(t) ? 1 : 0;
+    const belasting = /belasting|aangifte/.test(t) ? 1 : 0;
+    return [auto, auto, omzet, belasting];
+  }
+
+  let agentId: number;
+  beforeEach(() => {
+    process.env.EMBEDDINGS_API_KEY = "sk-test-123";
+    _clearEmbeddingCache();
+    agentId = seedAgent();
+    storage.createMemory({ agentId, layer: "L1", kind: "goal", content: "Wil de omzet verdubbelen", keywords: "omzet doel", salience: 80, sourceMessageId: null });
+    storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Rijdt in een elektrische wagen", keywords: "wagen elektrisch", salience: 70, sourceMessageId: null });
+    storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Doet elk jaar de belastingaangifte", keywords: "belasting aangifte", salience: 60, sourceMessageId: null });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: any) => {
+        const inputs: string[] = JSON.parse(init.body).input;
+        return { ok: true, json: async () => ({ data: inputs.map((s) => ({ embedding: fakeVec(s) })) }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    delete process.env.EMBEDDINGS_API_KEY;
+    vi.unstubAllGlobals();
+    _clearEmbeddingCache();
+  });
+
+  it("haalt een semantisch verwante herinnering op zónder woord-overlap", async () => {
+    const query = "tips voor mijn omzet en mijn auto";
+
+    // Zonder key: puur lexicaal — 'auto' matcht 'wagen' niet, dus die valt buiten beeld.
+    delete process.env.EMBEDDINGS_API_KEY;
+    const lexicaal = (await recallForChat(agentId, query)).memories.map((m) => m.content);
+    expect(lexicaal.some((c) => c.includes("omzet"))).toBe(true);
+    expect(lexicaal.some((c) => c.includes("wagen"))).toBe(false);
+
+    // Met key: de semantische leg haalt 'wagen' er alsnog bij (auto ~ wagen),
+    // terwijl 'belasting' (orthogonaal, onder de drempel) buiten beeld blijft.
+    process.env.EMBEDDINGS_API_KEY = "sk-test-123";
+    const semantisch = (await recallForChat(agentId, query)).memories.map((m) => m.content);
+    expect(semantisch.some((c) => c.includes("omzet"))).toBe(true);
+    expect(semantisch.some((c) => c.includes("wagen"))).toBe(true);
+    expect(semantisch.some((c) => c.includes("belasting"))).toBe(false);
   });
 });
