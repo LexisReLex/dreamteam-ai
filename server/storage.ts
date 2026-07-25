@@ -1,59 +1,59 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { drizzle as drizzlePglite, type PgliteDatabase } from "drizzle-orm/pglite";
+import { drizzle as drizzleNeon, type NeonDatabase } from "drizzle-orm/neon-serverless";
 import * as schema from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { Agent, InsertAgent, Task, InsertTask, Message, InsertMessage, UserProfile, InsertUserProfile, Loop, InsertLoop, LoopRun, InsertLoopRun, AgentMemory, InsertMemory, AgentPersona } from "@shared/schema";
 
-// Databasepad is configureerbaar via DB_PATH zodat je op Railway (of elders) een
-// persistent volume kunt mounten — bv. DB_PATH=/data/dreamteam.db. Zonder een
-// volume is SQLite vluchtig: loops, runs en state overleven een redeploy niet.
-const DB_PATH = process.env.DB_PATH || "data.db";
-// Zorg dat de map bestaat (bv. een net gemount /data-volume met subdir).
-try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch { /* map bestaat al of is cwd */ }
+// ─── Serverless Postgres (Neon) met een lokale PGlite-fallback ────────────────
+// Productie draait op Neon: zet DATABASE_URL naar je Neon-connectionstring en de
+// data leeft durable in de cloud (geen vluchtig containerbestand meer). Zonder
+// DATABASE_URL valt de app terug op PGlite — een embedded Postgres — zodat lokaal
+// ontwikkelen en de testsuite dezelfde Postgres-semantiek gebruiken zonder een
+// draaiende server of externe database nodig te hebben.
+//
+// Beide drivers zijn ASYNC (netwerk resp. WASM), dus de hele storage-laag is
+// async. `initStorage()` moet één keer bij het opstarten worden aangeroepen
+// vóórdat er queries lopen (zie server/index.ts en de test-setup).
+
+type DB = PgliteDatabase<typeof schema> | NeonDatabase<typeof schema>;
+
+let db: DB;
+let initPromise: Promise<void> | null = null;
 
 // ─── Opstartregel: waar landt de database? ────────────────────────────────────
-// Zonder DB_PATH schrijft SQLite naar de containermap en is alles vluchtig. Dat
-// gaat vandaag stíl mis: build, healthcheck en seed slagen alle drie, en pas na
-// een redeploy blijkt dat agents, loops, runs, herinneringen en profielen weg
-// zijn. Eén regel bij het opstarten maakt dat meteen zichtbaar in de logs.
-export interface DbPathNotice {
+// Zonder DATABASE_URL draait de app op een lokale/vluchtige PGlite. In productie
+// gaat dat stíl mis: build, healthcheck en seed slagen alle drie, en pas na een
+// redeploy blijkt dat agents, loops, runs, herinneringen en profielen weg zijn.
+// Eén regel bij het opstarten maakt dat meteen zichtbaar in de logs.
+export interface DbModeNotice {
   level: "log" | "warn";
   message: string;
 }
 
-/** Puur en testbaar: welke opstartregel hoort bij dit pad en deze omgeving? */
-export function describeDbPath(path: string, explicit: boolean, nodeEnv?: string): DbPathNotice | null {
-  if (path === ":memory:") return null; // tests — geen ruis
-  if (explicit) {
-    return { level: "log", message: `[storage] SQLite: ${path} (pad uit DB_PATH)` };
+/** Puur en testbaar: welke opstartregel hoort bij deze databasemodus en omgeving? */
+export function describeDbMode(hasDatabaseUrl: boolean, dbPath: string, nodeEnv?: string): DbModeNotice | null {
+  if (!hasDatabaseUrl && dbPath === ":memory:") return null; // tests — geen ruis
+  if (hasDatabaseUrl) {
+    return { level: "log", message: `[storage] Neon/Postgres via DATABASE_URL (durable).` };
   }
   if (nodeEnv === "production") {
     return {
       level: "warn",
       message:
-        `[storage] SQLite: ${path} — VLUCHTIG. DB_PATH is niet gezet, dus de database staat in de ` +
-        `containermap en verdwijnt bij elke redeploy of restart (agents, loops, runs, herinneringen ` +
-        `en profielen). Mount een volume op /data en zet DB_PATH=/data/dreamteam.db — zie docs/deployment.md §2.`,
+        `[storage] PGlite lokaal (${dbPath}) — VLUCHTIG. DATABASE_URL is niet gezet, dus de database ` +
+        `staat in de containermap en verdwijnt bij elke redeploy of restart (agents, loops, runs, ` +
+        `herinneringen en profielen). Zet DATABASE_URL naar je Neon-connectionstring — zie docs/deployment.md §2.`,
     };
   }
-  return { level: "log", message: `[storage] SQLite: ${path} (lokaal — DB_PATH niet gezet)` };
+  return { level: "log", message: `[storage] PGlite lokaal (${dbPath}) — DATABASE_URL niet gezet.` };
 }
 
-const dbNotice = describeDbPath(DB_PATH, Boolean(process.env.DB_PATH), process.env.NODE_ENV);
-if (dbNotice) console[dbNotice.level](dbNotice.message);
-
-const sqlite = new Database(DB_PATH);
-export const db = drizzle(sqlite, { schema });
-
-// Enable WAL mode for performance
-sqlite.pragma("journal_mode = WAL");
-
-// Create tables
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS agents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+// Idempotente Postgres-DDL. Per statement uitgevoerd zodat beide drivers (Neon
+// en PGlite) het identiek verwerken. `CREATE TABLE IF NOT EXISTS` maakt het veilig
+// om bij elke start te draaien.
+const DDL_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS agents (
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     role TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -63,10 +63,9 @@ sqlite.exec(`
     status TEXT NOT NULL DEFAULT 'idle',
     tasks_completed INTEGER NOT NULL DEFAULT 0,
     category TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
     agent_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -74,45 +73,41 @@ sqlite.exec(`
     priority TEXT NOT NULL DEFAULT 'medium',
     created_at TEXT NOT NULL,
     completed_at TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS messages (
+    id SERIAL PRIMARY KEY,
     agent_id INTEGER NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS user_profile (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS user_profile (
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     company TEXT NOT NULL,
     plan TEXT NOT NULL DEFAULT 'starter',
-    notifications_email INTEGER NOT NULL DEFAULT 1,
-    notifications_push INTEGER NOT NULL DEFAULT 1,
-    notifications_weekly INTEGER NOT NULL DEFAULT 0,
+    notifications_email BOOLEAN NOT NULL DEFAULT TRUE,
+    notifications_push BOOLEAN NOT NULL DEFAULT TRUE,
+    notifications_weekly BOOLEAN NOT NULL DEFAULT FALSE,
     language TEXT NOT NULL DEFAULT 'nl'
-  );
-
-  CREATE TABLE IF NOT EXISTS loops (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS loops (
+    id SERIAL PRIMARY KEY,
     agent_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     objective TEXT NOT NULL,
     cadence TEXT NOT NULL DEFAULT 'manual',
     level TEXT NOT NULL DEFAULT 'L1',
-    enabled INTEGER NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
     state TEXT NOT NULL DEFAULT '',
     last_score INTEGER,
     last_verdict TEXT,
     last_run_at TEXT,
     next_run_at TEXT,
     created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS loop_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS loop_runs (
+    id SERIAL PRIMARY KEY,
     loop_id INTEGER NOT NULL,
     maker_output TEXT NOT NULL DEFAULT '',
     verdict TEXT NOT NULL,
@@ -120,10 +115,9 @@ sqlite.exec(`
     critique TEXT NOT NULL DEFAULT '',
     tokens_used INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS agent_memories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE TABLE IF NOT EXISTS agent_memories (
+    id SERIAL PRIMARY KEY,
     agent_id INTEGER NOT NULL,
     layer TEXT NOT NULL DEFAULT 'L1',
     kind TEXT NOT NULL DEFAULT 'fact',
@@ -134,211 +128,247 @@ sqlite.exec(`
     use_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     last_used_at TEXT
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_agent_memories_agent ON agent_memories (agent_id);
-
-  CREATE TABLE IF NOT EXISTS agent_personas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_memories_agent ON agent_memories (agent_id)`,
+  `CREATE TABLE IF NOT EXISTS agent_personas (
+    id SERIAL PRIMARY KEY,
     agent_id INTEGER NOT NULL,
     profile TEXT NOT NULL DEFAULT '',
     memory_count INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
-  );
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_personas_agent ON agent_personas (agent_id)`,
+  // Veilige kolom-migratie voor databases die 'language' nog niet hebben.
+  `ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'nl'`,
+];
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_personas_agent ON agent_personas (agent_id);
+/**
+ * Verbindt met de database (Neon als DATABASE_URL gezet is, anders PGlite) en
+ * maakt de tabellen aan. Idempotent: een tweede aanroep hergebruikt dezelfde
+ * verbinding. Moet vóór het eerste storage-gebruik zijn afgerond.
+ */
+export function initStorage(): Promise<void> {
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    const dbPath = process.env.DB_PATH || "data.db";
 
-`);
+    const notice = describeDbMode(Boolean(databaseUrl), dbPath, process.env.NODE_ENV);
+    if (notice) console[notice.level](notice.message);
 
-// Safe migration: add language column if not exists
-try { sqlite.exec("ALTER TABLE user_profile ADD COLUMN language TEXT NOT NULL DEFAULT 'nl'"); } catch (_) { /* column already exists */ }
+    let runDDL: (sql: string) => Promise<unknown>;
+
+    if (databaseUrl) {
+      // Productie: serverless Postgres (Neon) over WebSocket. `ws` levert de
+      // WebSocket-constructor die de driver in Node nodig heeft.
+      const { Pool, neonConfig } = await import("@neondatabase/serverless");
+      const ws = (await import("ws")).default;
+      neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
+      const pool = new Pool({ connectionString: databaseUrl });
+      db = drizzleNeon(pool, { schema });
+      runDDL = (sql) => pool.query(sql);
+    } else {
+      // Lokaal/tests: embedded Postgres (PGlite). ":memory:" → vluchtige DB.
+      const { PGlite } = await import("@electric-sql/pglite");
+      const client = dbPath === ":memory:" ? new PGlite() : new PGlite(`${dbPath}-pg`);
+      db = drizzlePglite(client, { schema });
+      runDDL = (sql) => client.exec(sql);
+    }
+
+    for (const stmt of DDL_STATEMENTS) {
+      await runDDL(stmt);
+    }
+  })();
+  return initPromise;
+}
 
 export interface IStorage {
   // Agents
-  getAgents(): Agent[];
-  getAgent(id: number): Agent | undefined;
-  createAgent(data: InsertAgent): Agent;
-  updateAgentStatus(id: number, status: Agent["status"]): void;
+  getAgents(): Promise<Agent[]>;
+  getAgent(id: number): Promise<Agent | undefined>;
+  createAgent(data: InsertAgent): Promise<Agent>;
+  updateAgentStatus(id: number, status: Agent["status"]): Promise<void>;
 
   // Tasks
-  getTasks(): Task[];
-  getTasksByAgent(agentId: number): Task[];
-  createTask(data: InsertTask): Task;
-  updateTaskStatus(id: number, status: Task["status"]): Task | undefined;
+  getTasks(): Promise<Task[]>;
+  getTasksByAgent(agentId: number): Promise<Task[]>;
+  createTask(data: InsertTask): Promise<Task>;
+  updateTaskStatus(id: number, status: Task["status"]): Promise<Task | undefined>;
 
   // Messages
-  getMessages(agentId: number): Message[];
-  createMessage(data: InsertMessage): Message;
+  getMessages(agentId: number): Promise<Message[]>;
+  createMessage(data: InsertMessage): Promise<Message>;
 
   // Profile
-  getProfile(): UserProfile | undefined;
-  createProfile(data: InsertUserProfile): UserProfile;
-  updateProfile(id: number, data: Partial<InsertUserProfile>): UserProfile | undefined;
+  getProfile(): Promise<UserProfile | undefined>;
+  createProfile(data: InsertUserProfile): Promise<UserProfile>;
+  updateProfile(id: number, data: Partial<InsertUserProfile>): Promise<UserProfile | undefined>;
 
   // Loops
-  getLoops(): Loop[];
-  getLoop(id: number): Loop | undefined;
-  getDueLoops(nowIso: string): Loop[];
-  createLoop(data: InsertLoop): Loop;
-  updateLoop(id: number, data: Partial<Loop>): Loop | undefined;
-  deleteLoop(id: number): void;
+  getLoops(): Promise<Loop[]>;
+  getLoop(id: number): Promise<Loop | undefined>;
+  getDueLoops(nowIso: string): Promise<Loop[]>;
+  createLoop(data: InsertLoop): Promise<Loop>;
+  updateLoop(id: number, data: Partial<Loop>): Promise<Loop | undefined>;
+  deleteLoop(id: number): Promise<void>;
 
   // Loop runs
-  getLoopRuns(loopId: number, limit?: number): LoopRun[];
-  createLoopRun(data: InsertLoopRun): LoopRun;
+  getLoopRuns(loopId: number, limit?: number): Promise<LoopRun[]>;
+  createLoopRun(data: InsertLoopRun): Promise<LoopRun>;
 
   // Agent memory (L1 atoms)
-  getMemories(agentId: number): AgentMemory[];
-  getMemory(id: number): AgentMemory | undefined;
-  createMemory(data: InsertMemory): AgentMemory;
-  updateMemory(id: number, data: Partial<AgentMemory>): AgentMemory | undefined;
-  deleteMemory(id: number): void;
-  deleteMemoriesByAgent(agentId: number): void;
-  lastProcessedMessageId(agentId: number): number;
+  getMemories(agentId: number): Promise<AgentMemory[]>;
+  getMemory(id: number): Promise<AgentMemory | undefined>;
+  createMemory(data: InsertMemory): Promise<AgentMemory>;
+  updateMemory(id: number, data: Partial<AgentMemory>): Promise<AgentMemory | undefined>;
+  deleteMemory(id: number): Promise<void>;
+  deleteMemoriesByAgent(agentId: number): Promise<void>;
+  lastProcessedMessageId(agentId: number): Promise<number>;
 
   // Agent persona (L3)
-  getPersona(agentId: number): AgentPersona | undefined;
-  upsertPersona(agentId: number, profile: string, memoryCount: number): AgentPersona;
-  deletePersona(agentId: number): void;
+  getPersona(agentId: number): Promise<AgentPersona | undefined>;
+  upsertPersona(agentId: number, profile: string, memoryCount: number): Promise<AgentPersona>;
+  deletePersona(agentId: number): Promise<void>;
 
   // Stats
-  getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number };
+  getStats(): Promise<{ activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number }>;
 }
 
 export class Storage implements IStorage {
-  getAgents(): Agent[] {
-    return db.select().from(schema.agents).all();
+  async getAgents(): Promise<Agent[]> {
+    return db.select().from(schema.agents);
   }
 
-  getAgent(id: number): Agent | undefined {
-    return db.select().from(schema.agents).where(eq(schema.agents.id, id)).get();
+  async getAgent(id: number): Promise<Agent | undefined> {
+    const rows = await db.select().from(schema.agents).where(eq(schema.agents.id, id));
+    return rows[0];
   }
 
-  createAgent(data: InsertAgent): Agent {
-    return db.insert(schema.agents).values(data).returning().get();
+  async createAgent(data: InsertAgent): Promise<Agent> {
+    const rows = await db.insert(schema.agents).values(data).returning();
+    return rows[0];
   }
 
-  updateAgentStatus(id: number, status: Agent["status"]): void {
-    db.update(schema.agents).set({ status }).where(eq(schema.agents.id, id)).run();
+  async updateAgentStatus(id: number, status: Agent["status"]): Promise<void> {
+    await db.update(schema.agents).set({ status }).where(eq(schema.agents.id, id));
   }
 
-  getTasks(): Task[] {
-    return db.select().from(schema.tasks).all();
+  async getTasks(): Promise<Task[]> {
+    return db.select().from(schema.tasks);
   }
 
-  getTasksByAgent(agentId: number): Task[] {
-    return db.select().from(schema.tasks).where(eq(schema.tasks.agentId, agentId)).all();
+  async getTasksByAgent(agentId: number): Promise<Task[]> {
+    return db.select().from(schema.tasks).where(eq(schema.tasks.agentId, agentId));
   }
 
-  createTask(data: InsertTask): Task {
+  async createTask(data: InsertTask): Promise<Task> {
     const now = new Date().toISOString();
-    return db.insert(schema.tasks).values({ ...data, createdAt: now }).returning().get();
+    const rows = await db.insert(schema.tasks).values({ ...data, createdAt: now }).returning();
+    return rows[0];
   }
 
-  updateTaskStatus(id: number, status: Task["status"]): Task | undefined {
+  async updateTaskStatus(id: number, status: Task["status"]): Promise<Task | undefined> {
     const completedAt = status === "completed" ? new Date().toISOString() : null;
-    db.update(schema.tasks).set({ status, completedAt }).where(eq(schema.tasks.id, id)).run();
+    await db.update(schema.tasks).set({ status, completedAt }).where(eq(schema.tasks.id, id));
     // Also update agent tasks_completed count
-    const task = db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).get();
+    const task = (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)))[0];
     if (task && status === "completed") {
-      const agent = db.select().from(schema.agents).where(eq(schema.agents.id, task.agentId)).get();
+      const agent = (await db.select().from(schema.agents).where(eq(schema.agents.id, task.agentId)))[0];
       if (agent) {
-        db.update(schema.agents)
+        await db.update(schema.agents)
           .set({ tasksCompleted: agent.tasksCompleted + 1 })
-          .where(eq(schema.agents.id, agent.id))
-          .run();
+          .where(eq(schema.agents.id, agent.id));
       }
     }
     return task;
   }
 
-  getMessages(agentId: number): Message[] {
-    return db.select().from(schema.messages).where(eq(schema.messages.agentId, agentId)).all();
+  async getMessages(agentId: number): Promise<Message[]> {
+    return db.select().from(schema.messages).where(eq(schema.messages.agentId, agentId));
   }
 
-  createMessage(data: InsertMessage): Message {
+  async createMessage(data: InsertMessage): Promise<Message> {
     const now = new Date().toISOString();
-    return db.insert(schema.messages).values({ ...data, createdAt: now }).returning().get();
+    const rows = await db.insert(schema.messages).values({ ...data, createdAt: now }).returning();
+    return rows[0];
   }
 
-  getProfile(): UserProfile | undefined {
-    return db.select().from(schema.userProfile).get();
+  async getProfile(): Promise<UserProfile | undefined> {
+    const rows = await db.select().from(schema.userProfile);
+    return rows[0];
   }
 
-  createProfile(data: InsertUserProfile): UserProfile {
-    return db.insert(schema.userProfile).values(data).returning().get();
+  async createProfile(data: InsertUserProfile): Promise<UserProfile> {
+    const rows = await db.insert(schema.userProfile).values(data).returning();
+    return rows[0];
   }
 
-  updateProfile(id: number, data: Partial<InsertUserProfile>): UserProfile | undefined {
-    db.update(schema.userProfile).set(data).where(eq(schema.userProfile.id, id)).run();
-    return db.select().from(schema.userProfile).where(eq(schema.userProfile.id, id)).get();
+  async updateProfile(id: number, data: Partial<InsertUserProfile>): Promise<UserProfile | undefined> {
+    await db.update(schema.userProfile).set(data).where(eq(schema.userProfile.id, id));
+    return (await db.select().from(schema.userProfile).where(eq(schema.userProfile.id, id)))[0];
   }
 
   // ─── Loops ──────────────────────────────────────────────────────────────────
-  getLoops(): Loop[] {
-    return db.select().from(schema.loops).all();
+  async getLoops(): Promise<Loop[]> {
+    return db.select().from(schema.loops);
   }
 
-  getLoop(id: number): Loop | undefined {
-    return db.select().from(schema.loops).where(eq(schema.loops.id, id)).get();
+  async getLoop(id: number): Promise<Loop | undefined> {
+    const rows = await db.select().from(schema.loops).where(eq(schema.loops.id, id));
+    return rows[0];
   }
 
-  getDueLoops(nowIso: string): Loop[] {
-    return this.getLoops().filter(
+  async getDueLoops(nowIso: string): Promise<Loop[]> {
+    const all = await this.getLoops();
+    return all.filter(
       (l) => l.enabled && l.cadence !== "manual" && l.nextRunAt != null && l.nextRunAt <= nowIso,
     );
   }
 
-  createLoop(data: InsertLoop): Loop {
+  async createLoop(data: InsertLoop): Promise<Loop> {
     const now = new Date().toISOString();
-    return db.insert(schema.loops).values({ ...data, createdAt: now }).returning().get();
+    const rows = await db.insert(schema.loops).values({ ...data, createdAt: now }).returning();
+    return rows[0];
   }
 
-  updateLoop(id: number, data: Partial<Loop>): Loop | undefined {
+  async updateLoop(id: number, data: Partial<Loop>): Promise<Loop | undefined> {
     const { id: _ignore, ...rest } = data;
     if (Object.keys(rest).length > 0) {
-      db.update(schema.loops).set(rest).where(eq(schema.loops.id, id)).run();
+      await db.update(schema.loops).set(rest).where(eq(schema.loops.id, id));
     }
     return this.getLoop(id);
   }
 
-  deleteLoop(id: number): void {
-    db.delete(schema.loopRuns).where(eq(schema.loopRuns.loopId, id)).run();
-    db.delete(schema.loops).where(eq(schema.loops.id, id)).run();
+  async deleteLoop(id: number): Promise<void> {
+    await db.delete(schema.loopRuns).where(eq(schema.loopRuns.loopId, id));
+    await db.delete(schema.loops).where(eq(schema.loops.id, id));
   }
 
   // ─── Loop runs ──────────────────────────────────────────────────────────────
-  getLoopRuns(loopId: number, limit = 20): LoopRun[] {
-    return db
-      .select()
-      .from(schema.loopRuns)
-      .where(eq(schema.loopRuns.loopId, loopId))
-      .all()
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, limit);
+  async getLoopRuns(loopId: number, limit = 20): Promise<LoopRun[]> {
+    const rows = await db.select().from(schema.loopRuns).where(eq(schema.loopRuns.loopId, loopId));
+    return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
 
-  createLoopRun(data: InsertLoopRun): LoopRun {
+  async createLoopRun(data: InsertLoopRun): Promise<LoopRun> {
     const now = new Date().toISOString();
-    return db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning().get();
+    const rows = await db.insert(schema.loopRuns).values({ ...data, createdAt: now }).returning();
+    return rows[0];
   }
 
   // ─── Agent memory (L1 atoms) ─────────────────────────────────────────────────
-  getMemories(agentId: number): AgentMemory[] {
-    return db
-      .select()
-      .from(schema.agentMemories)
-      .where(eq(schema.agentMemories.agentId, agentId))
-      .all();
+  async getMemories(agentId: number): Promise<AgentMemory[]> {
+    return db.select().from(schema.agentMemories).where(eq(schema.agentMemories.agentId, agentId));
   }
 
-  getMemory(id: number): AgentMemory | undefined {
-    return db.select().from(schema.agentMemories).where(eq(schema.agentMemories.id, id)).get();
+  async getMemory(id: number): Promise<AgentMemory | undefined> {
+    const rows = await db.select().from(schema.agentMemories).where(eq(schema.agentMemories.id, id));
+    return rows[0];
   }
 
-  createMemory(data: InsertMemory): AgentMemory {
+  async createMemory(data: InsertMemory): Promise<AgentMemory> {
     const now = new Date().toISOString();
-    return db
+    const rows = await db
       .insert(schema.agentMemories)
       .values({
         agentId: data.agentId,
@@ -350,30 +380,30 @@ export class Storage implements IStorage {
         sourceMessageId: data.sourceMessageId ?? null,
         createdAt: now,
       })
-      .returning()
-      .get();
+      .returning();
+    return rows[0];
   }
 
-  updateMemory(id: number, data: Partial<AgentMemory>): AgentMemory | undefined {
+  async updateMemory(id: number, data: Partial<AgentMemory>): Promise<AgentMemory | undefined> {
     const { id: _ignore, ...rest } = data;
     if (Object.keys(rest).length > 0) {
-      db.update(schema.agentMemories).set(rest).where(eq(schema.agentMemories.id, id)).run();
+      await db.update(schema.agentMemories).set(rest).where(eq(schema.agentMemories.id, id));
     }
     return this.getMemory(id);
   }
 
-  deleteMemory(id: number): void {
-    db.delete(schema.agentMemories).where(eq(schema.agentMemories.id, id)).run();
+  async deleteMemory(id: number): Promise<void> {
+    await db.delete(schema.agentMemories).where(eq(schema.agentMemories.id, id));
   }
 
-  deleteMemoriesByAgent(agentId: number): void {
-    db.delete(schema.agentMemories).where(eq(schema.agentMemories.agentId, agentId)).run();
-    db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).run();
+  async deleteMemoriesByAgent(agentId: number): Promise<void> {
+    await db.delete(schema.agentMemories).where(eq(schema.agentMemories.agentId, agentId));
+    await db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId));
   }
 
   /** Hoogste message-id dat al in een extractie is verwerkt (0 als er niets is). */
-  lastProcessedMessageId(agentId: number): number {
-    const mems = this.getMemories(agentId);
+  async lastProcessedMessageId(agentId: number): Promise<number> {
+    const mems = await this.getMemories(agentId);
     let max = 0;
     for (const m of mems) {
       if (m.sourceMessageId != null && m.sourceMessageId > max) max = m.sourceMessageId;
@@ -382,34 +412,34 @@ export class Storage implements IStorage {
   }
 
   // ─── Agent persona (L3) ──────────────────────────────────────────────────────
-  getPersona(agentId: number): AgentPersona | undefined {
-    return db.select().from(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).get();
+  async getPersona(agentId: number): Promise<AgentPersona | undefined> {
+    const rows = await db.select().from(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId));
+    return rows[0];
   }
 
-  upsertPersona(agentId: number, profile: string, memoryCount: number): AgentPersona {
+  async upsertPersona(agentId: number, profile: string, memoryCount: number): Promise<AgentPersona> {
     const now = new Date().toISOString();
-    const existing = this.getPersona(agentId);
+    const existing = await this.getPersona(agentId);
     if (existing) {
-      db.update(schema.agentPersonas)
+      await db.update(schema.agentPersonas)
         .set({ profile, memoryCount, updatedAt: now })
-        .where(eq(schema.agentPersonas.agentId, agentId))
-        .run();
-      return this.getPersona(agentId)!;
+        .where(eq(schema.agentPersonas.agentId, agentId));
+      return (await this.getPersona(agentId))!;
     }
-    return db
+    const rows = await db
       .insert(schema.agentPersonas)
       .values({ agentId, profile, memoryCount, updatedAt: now })
-      .returning()
-      .get();
+      .returning();
+    return rows[0];
   }
 
-  deletePersona(agentId: number): void {
-    db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId)).run();
+  async deletePersona(agentId: number): Promise<void> {
+    await db.delete(schema.agentPersonas).where(eq(schema.agentPersonas.agentId, agentId));
   }
 
-  getStats(): { activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number } {
-    const allAgents = this.getAgents();
-    const allTasks = this.getTasks();
+  async getStats(): Promise<{ activeAgents: number; tasksCompleted: number; tasksInProgress: number; teamScore: number }> {
+    const allAgents = await this.getAgents();
+    const allTasks = await this.getTasks();
     const activeAgents = allAgents.filter(a => a.status === "active" || a.status === "busy").length;
     const tasksCompleted = allTasks.filter(t => t.status === "completed").length;
     const tasksInProgress = allTasks.filter(t => t.status === "in_progress").length;

@@ -2,11 +2,14 @@ node_modules/
 dist/
 .vite/
 
-# SQLite database files — never commit; exposes demo data at rest
+# Local database files — never commit; exposes demo data at rest
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
+# PGlite (embedded Postgres) data directory used when DATABASE_URL is unset
+*.db-pg/
+*.db-pg
 
 .env
 .env.local

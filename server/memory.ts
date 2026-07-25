@@ -17,10 +17,11 @@ import { embeddingsEnabled, embed, cosineSim } from "./embeddings";
 //
 // Standaard zonder externe vector-DB of embedding-endpoint: net als de "local,
 // zero-dependency" modus van TencentDB Agent Memory draait alles op de
-// bestaande SQLite + een lichte lexicale ranker. OPTIONEEL (key-gated, zie
-// `server/embeddings.ts`) komt daar een SEMANTISCHE recall-leg bij — geleend van
-// MemPalace — die relevante herinneringen ook zonder woord-overlap vindt. Zonder
-// key verandert er niets; recall blijft dan puur lokaal en synchroon.
+// bestaande Postgres (Neon in productie, PGlite lokaal) + een lichte lexicale
+// ranker. OPTIONEEL (key-gated, zie `server/embeddings.ts`) komt daar een
+// SEMANTISCHE recall-leg bij — geleend van MemPalace — die relevante
+// herinneringen ook zonder woord-overlap vindt. Zonder key verandert er niets;
+// recall blijft dan puur lexicaal.
 
 const MODEL = "claude-haiku-4-5";
 
@@ -326,14 +327,14 @@ async function semanticSimilarities(
  * weging en observability.
  */
 export async function recallForChat(agentId: number, query: string): Promise<RecallResult> {
-  const persona = storage.getPersona(agentId);
-  const all = visibleMemories(agentId);
+  const persona = await storage.getPersona(agentId);
+  const all = await visibleMemories(agentId);
   const semantic = await semanticSimilarities(query, all);
   const selected = selectMemories(all, query, INJECTION_BUDGET_CHARS, RECALL_TOP_K, semantic);
 
   const nowIso = new Date().toISOString();
   for (const m of selected) {
-    storage.updateMemory(m.id, { useCount: m.useCount + 1, lastUsedAt: nowIso });
+    await storage.updateMemory(m.id, { useCount: m.useCount + 1, lastUsedAt: nowIso });
   }
 
   return {
@@ -394,8 +395,8 @@ export async function extractMemories(
 }
 
 async function runExtraction(agentId: number, opts: { force?: boolean }): Promise<AgentMemory[]> {
-  const allMessages = storage.getMessages(agentId);
-  const lastProcessed = storage.lastProcessedMessageId(agentId);
+  const allMessages = await storage.getMessages(agentId);
+  const lastProcessed = await storage.lastProcessedMessageId(agentId);
   const unprocessed = allMessages.filter((m) => m.id > lastProcessed);
   const userTurns = unprocessed.filter((m) => m.role === "user").length;
 
@@ -422,7 +423,7 @@ async function runExtraction(agentId: number, opts: { force?: boolean }): Promis
     reconcileBudget(tokensUsed, estimatedTokens);
 
     const parsed = parseExtractedMemories(extractText(resp));
-    const existing = storage.getMemories(agentId);
+    const existing = await storage.getMemories(agentId);
     const fresh = dedupeAgainstExisting(parsed, existing);
 
     const created: AgentMemory[] = [];
@@ -436,14 +437,14 @@ async function runExtraction(agentId: number, opts: { force?: boolean }): Promis
         salience: f.salience,
         sourceMessageId: maxId,
       };
-      created.push(storage.createMemory(data));
+      created.push(await storage.createMemory(data));
     }
 
     // Ook zonder nieuwe atomen de high-water-mark verzetten, zodat we deze
     // beurten niet telkens opnieuw (en steeds duurder) proberen te extraheren.
-    advanceWatermark(agentId, maxId);
+    await advanceWatermark(agentId, maxId);
 
-    pruneIfNeeded(agentId);
+    await pruneIfNeeded(agentId);
     await maybeSynthesizePersona(agentId);
     return created;
   } catch (err: any) {
@@ -457,17 +458,17 @@ async function runExtraction(agentId: number, opts: { force?: boolean }): Promis
 // extractie geen bruikbare feiten oplevert. Precies één per agent: bestaat er al
 // een, dan verzetten we alleen het source_message_id. Zo groeit het
 // extractievenster niet ongelimiteerd en verspillen we geen budget.
-export const MARKER_CONTENT = " watermark";
+export const MARKER_CONTENT = "watermark";
 
-function advanceWatermark(agentId: number, maxId: number): void {
-  const existing = storage.getMemories(agentId).find((m) => m.content === MARKER_CONTENT);
+async function advanceWatermark(agentId: number, maxId: number): Promise<void> {
+  const existing = (await storage.getMemories(agentId)).find((m) => m.content === MARKER_CONTENT);
   if (existing) {
     if ((existing.sourceMessageId ?? 0) < maxId) {
-      storage.updateMemory(existing.id, { sourceMessageId: maxId });
+      await storage.updateMemory(existing.id, { sourceMessageId: maxId });
     }
     return;
   }
-  storage.createMemory({
+  await storage.createMemory({
     agentId,
     layer: "L1",
     kind: "context",
@@ -479,8 +480,8 @@ function advanceWatermark(agentId: number, maxId: number): void {
 }
 
 /** Zichtbare herinneringen (zonder het interne watermark-baken). */
-export function visibleMemories(agentId: number): AgentMemory[] {
-  return storage.getMemories(agentId).filter((m) => m.content !== MARKER_CONTENT);
+export async function visibleMemories(agentId: number): Promise<AgentMemory[]> {
+  return (await storage.getMemories(agentId)).filter((m) => m.content !== MARKER_CONTENT);
 }
 
 // ─── Vergeten (L1 + L3) ────────────────────────────────────────────────────────
@@ -498,16 +499,16 @@ function queuePersonaRebuild(agentId: number): Promise<void> {
   const next = (personaRebuild.get(agentId) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
-      if (visibleMemories(agentId).length === 0) {
-        storage.deletePersona(agentId); // geen bron meer → geen profiel
+      if ((await visibleMemories(agentId)).length === 0) {
+        await storage.deletePersona(agentId); // geen bron meer → geen profiel
         return;
       }
       await maybeSynthesizePersona(agentId, { force: true });
     })
-    .catch((err: any) => {
+    .catch(async (err: any) => {
       // Mislukt de herbouw (bv. budget bereikt), dan blijft het profiel weg.
       // Liever geen geheugen dan een profiel met een vergeten feit erin.
-      storage.deletePersona(agentId);
+      await storage.deletePersona(agentId);
       console.error(`[memory ${agentId}] herbouw profiel na vergeten faalde:`, err?.message || err);
     });
   personaRebuild.set(agentId, next);
@@ -521,9 +522,9 @@ function queuePersonaRebuild(agentId: number): Promise<void> {
  * profiel — nooit het oude, foute profiel.
  * Retourneert de herbouw-belofte (voor tests); aanroepers mogen 'm negeren.
  */
-export function forgetMemory(agentId: number, memId: number): Promise<void> {
-  storage.deleteMemory(memId);
-  storage.deletePersona(agentId);
+export async function forgetMemory(agentId: number, memId: number): Promise<void> {
+  await storage.deleteMemory(memId);
+  await storage.deletePersona(agentId);
   return queuePersonaRebuild(agentId);
 }
 
@@ -533,16 +534,16 @@ export function forgetMemory(agentId: number, memId: number): Promise<void> {
  * extractie het hele gesprek opnieuw lezen en precies de zojuist gewiste feiten
  * terugzetten — een wisknop die niets wist.
  */
-export function forgetAll(agentId: number): void {
-  storage.deleteMemoriesByAgent(agentId);
-  const maxId = storage.getMessages(agentId).reduce((mx, m) => Math.max(mx, m.id), 0);
-  if (maxId > 0) advanceWatermark(agentId, maxId);
+export async function forgetAll(agentId: number): Promise<void> {
+  await storage.deleteMemoriesByAgent(agentId);
+  const maxId = (await storage.getMessages(agentId)).reduce((mx, m) => Math.max(mx, m.id), 0);
+  if (maxId > 0) await advanceWatermark(agentId, maxId);
 }
 
 // Cap het geheugen: bij overschrijding verwijderen we de zwakste herinneringen
 // (laagste salience, dan minst gebruikt, dan oudst) — vergeten is ook geheugen.
-function pruneIfNeeded(agentId: number): void {
-  const mems = visibleMemories(agentId);
+async function pruneIfNeeded(agentId: number): Promise<void> {
+  const mems = await visibleMemories(agentId);
   if (mems.length <= MAX_MEMORIES_PER_AGENT) return;
   const ranked = mems.slice().sort((a, b) => {
     if (a.salience !== b.salience) return a.salience - b.salience;
@@ -550,7 +551,7 @@ function pruneIfNeeded(agentId: number): void {
     return a.createdAt.localeCompare(b.createdAt);
   });
   const toRemove = ranked.slice(0, mems.length - MAX_MEMORIES_PER_AGENT);
-  for (const m of toRemove) storage.deleteMemory(m.id);
+  for (const m of toRemove) await storage.deleteMemory(m.id);
 }
 
 // ─── Persona-synthese (L3) ─────────────────────────────────────────────────────
@@ -558,8 +559,8 @@ const PERSONA_SYSTEM = `Je vat een set feiten over één gebruiker samen tot een
 
 /** Her-synthetiseert het persona-profiel als er genoeg nieuwe herinneringen zijn. */
 export async function maybeSynthesizePersona(agentId: number, opts: { force?: boolean } = {}): Promise<boolean> {
-  const mems = visibleMemories(agentId);
-  const persona = storage.getPersona(agentId);
+  const mems = await visibleMemories(agentId);
+  const persona = await storage.getPersona(agentId);
   // Absolute drift: het geheugen kan ook KRIMPEN (prune, vergeten). Met een kaal
   // verschil wordt sinceLast dan negatief en zou het profiel nooit meer
   // hersynthetiseren — juist op het moment dat het níet meer klopt.
@@ -590,7 +591,7 @@ export async function maybeSynthesizePersona(agentId: number, opts: { force?: bo
 
     const profile = extractText(resp).trim().slice(0, 1200);
     if (profile) {
-      storage.upsertPersona(agentId, profile, mems.length);
+      await storage.upsertPersona(agentId, profile, mems.length);
       return true;
     }
     return false;
@@ -604,8 +605,8 @@ export async function maybeSynthesizePersona(agentId: number, opts: { force?: bo
 // Voegt persona-context toe aan de systeemprompt van een agent. Handig voor loops
 // die dezelfde agent-identiteit delen. Retourneert de prompt ongewijzigd als er
 // geen persona is.
-export function withPersona(agentId: number, systemPrompt: string): string {
-  const persona = storage.getPersona(agentId);
+export async function withPersona(agentId: number, systemPrompt: string): Promise<string> {
+  const persona = await storage.getPersona(agentId);
   const p = persona?.profile?.trim();
   if (!p) return systemPrompt;
   return `${systemPrompt}\n\nWat je over deze gebruiker onthouden hebt:\n${p}`;

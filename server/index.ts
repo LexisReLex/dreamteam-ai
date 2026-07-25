@@ -3,6 +3,7 @@ import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { initStorage } from "./storage";
 import { createServer } from "node:http";
 
 const app = express();
@@ -62,6 +63,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Verbind met de database (Neon in productie, PGlite lokaal) en maak de
+  // tabellen aan vóórdat er routes/seed op de storage leunen.
+  await initStorage();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

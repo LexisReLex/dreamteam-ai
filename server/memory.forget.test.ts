@@ -54,18 +54,18 @@ import {
 } from "./memory";
 import { storage } from "./storage";
 
-function seedAgent(): number {
-  const agent = storage.createAgent({
+async function seedAgent(): Promise<number> {
+  const agent = await storage.createAgent({
     name: "Nova", role: "Marketing", description: "d", avatarColor: "#000", avatarIcon: "Megaphone",
     specialty: "s", status: "active", tasksCompleted: 0, category: "marketing",
   });
   return agent.id;
 }
 
-function chat(agentId: number, turns: number) {
+async function chat(agentId: number, turns: number) {
   for (let i = 0; i < turns; i++) {
-    storage.createMessage({ agentId, role: "user", content: `Vraag ${i} over mijn webshop en omzet` });
-    storage.createMessage({ agentId, role: "assistant", content: `Antwoord ${i}` });
+    await storage.createMessage({ agentId, role: "user", content: `Vraag ${i} over mijn webshop en omzet` });
+    await storage.createMessage({ agentId, role: "assistant", content: `Antwoord ${i}` });
   }
 }
 
@@ -76,61 +76,61 @@ describe("vergeten (L1 + L3)", () => {
   let agentId: number;
   beforeEach(async () => {
     createMock.mockClear();
-    agentId = seedAgent();
-    chat(agentId, 3);
+    agentId = await seedAgent();
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
     await maybeSynthesizePersona(agentId, { force: true });
   });
 
   it("haalt een vergeten feit óók uit het persona-profiel en uit het recall-blok", async () => {
-    const gevoelig = visibleMemories(agentId).find((m) => m.content.includes("scheiding"))!;
-    expect(storage.getPersona(agentId)?.profile).toContain("scheiding");
+    const gevoelig = (await visibleMemories(agentId)).find((m) => m.content.includes("scheiding"))!;
+    expect((await storage.getPersona(agentId))?.profile).toContain("scheiding");
 
     await forgetMemory(agentId, gevoelig.id);
 
-    expect(visibleMemories(agentId).some((m) => m.content.includes("scheiding"))).toBe(false);
-    expect(storage.getPersona(agentId)?.profile ?? "").not.toContain("scheiding");
+    expect((await visibleMemories(agentId)).some((m) => m.content.includes("scheiding"))).toBe(false);
+    expect((await storage.getPersona(agentId))?.profile ?? "").not.toContain("scheiding");
 
     const recall = await recallForChat(agentId, "waar was ik ook alweer mee bezig");
     expect(recall.block).not.toContain("scheiding");
     // De overgebleven feiten zitten er nog wél in — we gooien niet te veel weg.
-    expect(storage.getPersona(agentId)?.profile).toContain("webshop");
+    expect((await storage.getPersona(agentId))?.profile).toContain("webshop");
   });
 
   it("laat geen profiel achter als het laatste feit vergeten wordt", async () => {
     // Snel achter elkaar wissen: de herbouw van de eerste mag niet ná die van
     // de laatste landen. Alleen op de laatste belofte wachten is genoeg.
     let laatste: Promise<void> = Promise.resolve();
-    for (const m of visibleMemories(agentId)) laatste = forgetMemory(agentId, m.id);
+    for (const m of (await visibleMemories(agentId))) laatste = forgetMemory(agentId, m.id);
     await laatste;
 
-    expect(visibleMemories(agentId).length).toBe(0);
-    expect(storage.getPersona(agentId)).toBeUndefined();
+    expect((await visibleMemories(agentId)).length).toBe(0);
+    expect((await storage.getPersona(agentId))).toBeUndefined();
     const recall = await recallForChat(agentId, "hoi");
     expect(recall.persona).toBe(false);
     expect(recall.block).toBe("");
   });
 
   it("zet na een volledige wis de watermark door, zodat gewiste feiten niet terugkomen", async () => {
-    forgetAll(agentId);
-    expect(visibleMemories(agentId).length).toBe(0);
-    expect(storage.getPersona(agentId)).toBeUndefined();
+    await forgetAll(agentId);
+    expect((await visibleMemories(agentId)).length).toBe(0);
+    expect((await storage.getPersona(agentId))).toBeUndefined();
 
     createMock.mockClear();
     const opnieuw = await extractMemories(agentId); // zonder force: mag niets doen
     expect(createMock).not.toHaveBeenCalled();
     expect(opnieuw).toEqual([]);
-    expect(visibleMemories(agentId).length).toBe(0);
+    expect((await visibleMemories(agentId)).length).toBe(0);
   });
 
   it("hersynthetiseert het profiel ook als het geheugen krimpt in plaats van groeit", async () => {
     // Simuleer een profiel dat op véél meer feiten gebouwd was (prune/wis eerder).
-    storage.upsertPersona(agentId, "verouderd profiel", 20);
-    expect(visibleMemories(agentId).length).toBe(3);
+    await storage.upsertPersona(agentId, "verouderd profiel", 20);
+    expect((await visibleMemories(agentId)).length).toBe(3);
 
     const opnieuw = await maybeSynthesizePersona(agentId); // zonder force
     expect(opnieuw).toBe(true);
-    expect(storage.getPersona(agentId)?.profile).not.toBe("verouderd profiel");
-    expect(storage.getPersona(agentId)?.memoryCount).toBe(3);
+    expect((await storage.getPersona(agentId))?.profile).not.toBe("verouderd profiel");
+    expect((await storage.getPersona(agentId))?.memoryCount).toBe(3);
   });
 });

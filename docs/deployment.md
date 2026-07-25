@@ -11,7 +11,8 @@ Zet deze in je hostingomgeving (bv. Railway → Variables). Zie ook `.env.exampl
 |-----------|---------|------------------|-------------|
 | `ANTHROPIC_API_KEY` | ✅ | `sk-ant-...` | API-sleutel voor de agents. `CUSTOM_CRED_API_ANTHROPIC_COM_TOKEN` werkt ook. |
 | `DAILY_TOKEN_LIMIT` | — | `50000` | Gedeeld dagelijks tokenplafond (chat + loops). Begin laag, verhoog na kostenmeting. |
-| `DB_PATH` | ⚠️ prod | `/data/dreamteam.db` | Pad naar SQLite. **Zet dit op een persistent volume** (zie §2), anders is data vluchtig. |
+| `DATABASE_URL` | ⚠️ prod | `postgresql://…@…neon.tech/…?sslmode=require` | Neon (serverless Postgres) connectionstring. **Zet dit** (zie §2), anders draait de app op een vluchtige lokale PGlite en verdwijnt data bij elke redeploy. |
+| `DB_PATH` | — | — | Alleen lokaal/zonder `DATABASE_URL`: mappad voor de embedded PGlite-database. In productie niet nodig. |
 | `ALLOWED_ORIGINS` | — | `https://jouwdomein.nl` | Komma-gescheiden origin-allowlist voor de dure endpoints (defense-in-depth). Leeg = alles toestaan. |
 | `API_ACCESS_TOKEN` | — | leeg | Optionele API-token voor **afgeschermde/interne** deploys (geen publieke SPA). Vereist dan header `x-api-token`. |
 | `PORT` / `NODE_ENV` | — | zet host zelf | Railway vult deze automatisch. |
@@ -22,35 +23,45 @@ Zet deze in je hostingomgeving (bv. Railway → Variables). Zie ook `.env.exampl
 > nodig (aparte mijlpaal). `ALLOWED_ORIGINS` + de rate limits + het token-budget
 > vormen samen de defense-in-depth voor een publieke demo.
 
-## 2. ⚠️ Persistente opslag (belangrijkste stap)
+## 2. ⚠️ Database: Neon (serverless Postgres)
 
-De app gebruikt SQLite. Standaard schrijft die naar `data.db` in de containermap,
-en containers op Railway/Fly/Render zijn **ephemeral** — bij elke redeploy of
-restart is die map weg. Voor de loops betekent dat: **loops, runs én het
-state-geheugen verdwijnen**. State-geheugen is de kern van loop engineering, dus
-dit moet je regelen.
+De app draait op **Postgres**. In productie gebruik je **Neon** (serverless
+Postgres): de data leeft durable in de cloud, niet in de container. Containers op
+Railway/Fly/Render zijn **ephemeral** — zonder externe database zou bij elke
+redeploy of restart **alles weg zijn**: loops, runs én het state-geheugen. Dat
+state-geheugen is de kern van loop engineering, dus dit moet je regelen.
 
-**Railway (aanbevolen):**
-1. Maak een **Volume** aan en mount die op `/data`.
-2. Zet `DB_PATH=/data/dreamteam.db`.
-3. Redeploy. De app maakt de map zo nodig zelf aan.
+**Neon opzetten (eenmalig):**
+1. Maak een gratis account op [neon.com](https://neon.com) en een nieuw project
+   (kies de regio het dichtst bij je hosting).
+2. Kopieer de **connection string** (Dashboard → Connect). Vorm:
+   `postgresql://<user>:<password>@<host>.neon.tech/<db>?sslmode=require`.
+3. Zet die als `DATABASE_URL` in je hostingomgeving (Railway → Variables).
+4. Redeploy. De app maakt de tabellen bij het opstarten zelf aan (idempotent).
 
-De database (en state) overleeft nu redeploys en restarts.
+De database (en state) overleeft nu redeploys en restarts. Branchen van de
+database per preview-omgeving kan later via Neons branch-feature.
 
-**Controleren in de logs (geen dashboard nodig).** De server logt bij het opstarten waar
-de database landt:
+**Zonder `DATABASE_URL`** valt de app terug op een **embedded PGlite** (lokale
+Postgres). Handig voor lokaal ontwikkelen en de testsuite — maar in de container
+is dat vluchtig.
+
+**Controleren in de logs (geen dashboard nodig).** De server logt bij het opstarten
+welke databasemodus actief is:
 
 ```
-[storage] SQLite: /data/dreamteam.db (pad uit DB_PATH)      ← goed
-[storage] SQLite: data.db — VLUCHTIG. DB_PATH is niet gezet …  ← fout, data verdwijnt
+[storage] Neon/Postgres via DATABASE_URL (durable).            ← goed
+[storage] PGlite lokaal (data.db) — VLUCHTIG. DATABASE_URL … ← fout, data verdwijnt
 ```
 
-Zie je de tweede regel in productie, dan schrijft SQLite naar de containermap en ben je
-alles kwijt bij de eerstvolgende redeploy. Let op: dit gaat verder stíl mis — de build
-slaagt, de healthcheck op `/api/agents` slaagt en de app seedt gewoon een verse database.
+Zie je de tweede regel in productie, dan draait de app op een vluchtige lokale
+database en ben je alles kwijt bij de eerstvolgende redeploy. Let op: dit gaat
+verder stíl mis — de build slaagt, de healthcheck op `/api/agents` slaagt en de
+app seedt gewoon een verse database.
 
-> Alternatief: migreren naar Postgres/Supabase (`@supabase/supabase-js` zit al in
-> `package.json`). Meer werk, maar beter voor schaal en back-ups.
+> Schema wijzigen? `shared/schema.ts` is de bron van waarheid. Voor lokaal
+> itereren kun je `npm run db:push` (drizzle-kit) tegen je `DATABASE_URL` draaien;
+> de app zelf maakt ontbrekende tabellen bij elke start idempotent aan.
 
 ## 3. Eén instance
 
@@ -116,7 +127,7 @@ vertrouwt.
 ## 7. Checklist vóór livegang
 
 - [ ] `ANTHROPIC_API_KEY` gezet en getest (een handmatige "Draai nu" geeft geen `ERROR`).
-- [ ] Volume gemount en `DB_PATH` erop gezet.
+- [ ] Neon-project aangemaakt en `DATABASE_URL` gezet (log toont "Neon/Postgres via DATABASE_URL").
 - [ ] Eén instance/replica.
 - [ ] `DAILY_TOKEN_LIMIT` bewust laag gezet voor de start.
 - [ ] Eerste loops op **L1**, uitgeschakeld, handmatig gevalideerd.

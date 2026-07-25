@@ -60,19 +60,19 @@ const SEED_AGENTS = [
   { name: "Orion", role: "Strategisch Adviseur", description: "Orion ziet het grote plaatje. Hij helpt je heldere strategische keuzes te maken, OKR's te formuleren en je bedrijf richting te geven.", avatarColor: "#f59e0b", avatarIcon: "Compass", specialty: "Strategisch planning & OKR framework", status: "idle" as const, tasksCompleted: 9, category: "strategy" },
 ];
 
-function seedDatabase() {
-  const existingAgents = storage.getAgents();
+async function seedDatabase() {
+  const existingAgents = await storage.getAgents();
   if (existingAgents.length > 0) return;
 
   console.log("Seeding database...");
 
   const createdAgents: number[] = [];
   for (const agent of SEED_AGENTS) {
-    const created = storage.createAgent(agent);
+    const created = await storage.createAgent(agent);
     createdAgents.push(created.id);
   }
 
-  storage.createProfile({
+  await storage.createProfile({
     name: "Lex",
     company: "DreamTeam",
     plan: "pro",
@@ -93,7 +93,7 @@ function seedDatabase() {
   ];
 
   for (const task of sampleTasks) {
-    storage.createTask(task);
+    await storage.createTask(task);
   }
 
   console.log("Database seeded successfully.");
@@ -115,61 +115,61 @@ const profileUpdateSchema = insertUserProfileSchema.pick({
 }).partial();
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  seedDatabase();
+  await seedDatabase();
 
   // Toegangsbescherming voor de dure (betaalde) endpoints. Standaard permissief;
   // wordt streng zodra ALLOWED_ORIGINS en/of API_ACCESS_TOKEN gezet zijn.
   const guard = accessGuard();
 
   // GET /api/agents
-  app.get("/api/agents", (req, res) => {
-    const agents = storage.getAgents();
+  app.get("/api/agents", async (req, res) => {
+    const agents = await storage.getAgents();
     res.json(agents);
   });
 
   // GET /api/agents/:id
-  app.get("/api/agents/:id", (req, res) => {
+  app.get("/api/agents/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    const agent = storage.getAgent(id);
+    const agent = await storage.getAgent(id);
     if (!agent) return res.status(404).json({ error: "Agent niet gevonden" });
     res.json(agent);
   });
 
   // GET /api/tasks
-  app.get("/api/tasks", (req, res) => {
-    const tasks = storage.getTasks();
-    const agents = storage.getAgents();
+  app.get("/api/tasks", async (req, res) => {
+    const tasks = await storage.getTasks();
+    const agents = await storage.getAgents();
     const agentMap = Object.fromEntries(agents.map(a => [a.id, a]));
     const tasksWithAgent = tasks.map(t => ({ ...t, agent: agentMap[t.agentId] || null }));
     res.json(tasksWithAgent);
   });
 
   // POST /api/tasks
-  app.post("/api/tasks", (req, res) => {
+  app.post("/api/tasks", async (req, res) => {
     const result = insertTaskSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.flatten() });
-    const task = storage.createTask(result.data);
+    const task = await storage.createTask(result.data);
     res.status(201).json(task);
   });
 
   // PATCH /api/tasks/:id
-  app.patch("/api/tasks/:id", (req, res) => {
+  app.patch("/api/tasks/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig taak ID" });
     const { status } = req.body;
     const validStatuses = ["pending", "in_progress", "completed", "failed"];
     if (!validStatuses.includes(status)) return res.status(400).json({ error: "Ongeldige status" });
-    const task = storage.updateTaskStatus(id, status);
+    const task = await storage.updateTaskStatus(id, status);
     if (!task) return res.status(404).json({ error: "Taak niet gevonden" });
     res.json(task);
   });
 
   // GET /api/messages/:agentId
-  app.get("/api/messages/:agentId", (req, res) => {
+  app.get("/api/messages/:agentId", async (req, res) => {
     const agentId = parseInt(req.params.agentId);
     if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    const msgs = storage.getMessages(agentId);
+    const msgs = await storage.getMessages(agentId);
     res.json(msgs);
   });
 
@@ -181,17 +181,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { agentId, content } = result.data;
 
     // Validate agent exists
-    const agent = storage.getAgent(agentId);
+    const agent = await storage.getAgent(agentId);
     if (!agent) return res.status(404).json({ error: "Agent niet gevonden" });
 
     // Save user message
-    const userMsg = storage.createMessage({ agentId, role: "user", content });
+    const userMsg = await storage.createMessage({ agentId, role: "user", content });
 
     // Get conversation history for context (last 10 messages). Elk bericht gaat
     // eerst door de Headroom-compressielaag: ceremonie (whitespace, dubbele lege
     // regels, JSON-opmaak) verdwijnt zodat de historie minder tokens kost, met
     // hetzelfde signaal. Het huidige bericht comprimeren we ook.
-    const history = storage.getMessages(agentId).slice(-10);
+    const history = (await storage.getMessages(agentId)).slice(-10);
     const conversationHistory = history
       .filter(m => m.id !== userMsg.id)
       .map(m => ({ role: m.role as "user" | "assistant", content: compress(m.content).text }));
@@ -253,7 +253,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       assistantContent = "Er is een fout opgetreden. Probeer het later opnieuw.";
     }
 
-    const assistantMsg = storage.createMessage({ agentId, role: "assistant", content: assistantContent });
+    const assistantMsg = await storage.createMessage({ agentId, role: "assistant", content: assistantContent });
 
     // ─── Agent Memory: destilleer nieuwe feiten uit de dialoog (asynchroon) ───
     // Fire-and-forget zodat de chat-latency niet lijdt. De extractor beslist zelf
@@ -266,65 +266,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/profile
-  app.get("/api/profile", (req, res) => {
-    const profile = storage.getProfile();
+  app.get("/api/profile", async (req, res) => {
+    const profile = await storage.getProfile();
     if (!profile) return res.status(404).json({ error: "Profiel niet gevonden" });
     res.json(profile);
   });
 
   // PATCH /api/profile — validated with explicit field allowlist
-  app.patch("/api/profile", (req, res) => {
-    const profile = storage.getProfile();
+  app.patch("/api/profile", async (req, res) => {
+    const profile = await storage.getProfile();
     if (!profile) return res.status(404).json({ error: "Profiel niet gevonden" });
     const result = profileUpdateSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.flatten() });
-    const updated = storage.updateProfile(profile.id, result.data);
+    const updated = await storage.updateProfile(profile.id, result.data);
     res.json(updated);
   });
 
   // ─── Agent Loops (loop engineering) ─────────────────────────────────────────
 
-  function loopWithAgent(loop: ReturnType<typeof storage.getLoop>) {
+  async function loopWithAgent(loop: Awaited<ReturnType<typeof storage.getLoop>>) {
     if (!loop) return loop;
-    const agent = storage.getAgent(loop.agentId);
+    const agent = await storage.getAgent(loop.agentId);
     return { ...loop, agent: agent || null };
   }
 
   // GET /api/loops
-  app.get("/api/loops", (req, res) => {
-    const loops = storage.getLoops();
-    res.json(loops.map((l) => loopWithAgent(l)));
+  app.get("/api/loops", async (req, res) => {
+    const loops = await storage.getLoops();
+    res.json(await Promise.all(loops.map((l) => loopWithAgent(l))));
   });
 
   // GET /api/loops/:id  (met laatste runs)
-  app.get("/api/loops/:id", (req, res) => {
+  app.get("/api/loops/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
-    const loop = storage.getLoop(id);
+    const loop = await storage.getLoop(id);
     if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
-    res.json({ ...loopWithAgent(loop), runs: storage.getLoopRuns(id, 20) });
+    res.json({ ...(await loopWithAgent(loop)), runs: await storage.getLoopRuns(id, 20) });
   });
 
   // POST /api/loops
-  app.post("/api/loops", (req, res) => {
+  app.post("/api/loops", async (req, res) => {
     const result = insertLoopSchema.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.flatten() });
-    if (!storage.getAgent(result.data.agentId)) return res.status(400).json({ error: "Agent niet gevonden" });
+    if (!(await storage.getAgent(result.data.agentId))) return res.status(400).json({ error: "Agent niet gevonden" });
 
     const enabled = result.data.enabled ?? false;
     const cadence = result.data.cadence ?? "manual";
     const nextRunAt = enabled && cadence !== "manual" ? computeNextRunAt(cadence) : null;
-    const loop = storage.createLoop(result.data);
-    const updated = storage.updateLoop(loop.id, { nextRunAt });
-    res.status(201).json(loopWithAgent(updated));
+    const loop = await storage.createLoop(result.data);
+    const updated = await storage.updateLoop(loop.id, { nextRunAt });
+    res.status(201).json(await loopWithAgent(updated));
   });
 
   // PATCH /api/loops/:id  (naam, objective, cadence, level, enabled)
   const loopUpdateSchema = insertLoopSchema.partial().omit({ agentId: true });
-  app.patch("/api/loops/:id", (req, res) => {
+  app.patch("/api/loops/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
-    const loop = storage.getLoop(id);
+    const loop = await storage.getLoop(id);
     if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
 
     const result = loopUpdateSchema.safeParse(req.body);
@@ -339,16 +339,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           : computeNextRunAt(next.cadence)
         : null;
 
-    const updated = storage.updateLoop(id, { ...result.data, nextRunAt });
-    res.json(loopWithAgent(updated));
+    const updated = await storage.updateLoop(id, { ...result.data, nextRunAt });
+    res.json(await loopWithAgent(updated));
   });
 
   // DELETE /api/loops/:id
-  app.delete("/api/loops/:id", (req, res) => {
+  app.delete("/api/loops/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
-    if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
-    storage.deleteLoop(id);
+    if (!(await storage.getLoop(id))) return res.status(404).json({ error: "Loop niet gevonden" });
+    await storage.deleteLoop(id);
     res.status(204).end();
   });
 
@@ -356,31 +356,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/loops/:id/run", guard, rateLimit(10, 60 * 1000), async (req, res) => {
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
-    const loop = storage.getLoop(id);
+    const loop = await storage.getLoop(id);
     if (!loop) return res.status(404).json({ error: "Loop niet gevonden" });
 
     const run = await runLoop(loop);
     if (!run) return res.status(409).json({ error: "Deze loop draait al. Wacht tot de huidige run klaar is." });
-    res.json({ run, loop: loopWithAgent(storage.getLoop(id)) });
+    res.json({ run, loop: await loopWithAgent(await storage.getLoop(id)) });
   });
 
   // GET /api/loops/:id/runs
-  app.get("/api/loops/:id/runs", (req, res) => {
+  app.get("/api/loops/:id/runs", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig loop ID" });
-    if (!storage.getLoop(id)) return res.status(404).json({ error: "Loop niet gevonden" });
-    res.json(storage.getLoopRuns(id, 20));
+    if (!(await storage.getLoop(id))) return res.status(404).json({ error: "Loop niet gevonden" });
+    res.json(await storage.getLoopRuns(id, 20));
   });
 
   // ─── Agent Memory (gelaagd geheugen) ────────────────────────────────────────
 
   // GET /api/agents/:id/memory — persona (L3) + herinneringen (L1), white-box.
-  app.get("/api/agents/:id/memory", (req, res) => {
+  app.get("/api/agents/:id/memory", async (req, res) => {
     const agentId = parseInt(req.params.id);
     if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
-    const persona = storage.getPersona(agentId);
-    const memories = visibleMemories(agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (!(await storage.getAgent(agentId))) return res.status(404).json({ error: "Agent niet gevonden" });
+    const persona = await storage.getPersona(agentId);
+    const memories = (await visibleMemories(agentId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     res.json({ persona: persona ?? null, memories, count: memories.length });
   });
 
@@ -388,22 +388,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/agents/:id/memory/extract", guard, rateLimit(10, 60 * 1000), async (req, res) => {
     const agentId = parseInt(String(req.params.id));
     if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
+    if (!(await storage.getAgent(agentId))) return res.status(404).json({ error: "Agent niet gevonden" });
     const created = await extractMemories(agentId, { force: true });
     await maybeSynthesizePersona(agentId, { force: created.length > 0 });
     res.json({
       created,
-      persona: storage.getPersona(agentId) ?? null,
-      memories: visibleMemories(agentId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      persona: (await storage.getPersona(agentId)) ?? null,
+      memories: (await visibleMemories(agentId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     });
   });
 
   // DELETE /api/agents/:id/memory/:memId — vergeet één herinnering.
-  app.delete("/api/agents/:id/memory/:memId", (req, res) => {
+  app.delete("/api/agents/:id/memory/:memId", async (req, res) => {
     const agentId = parseInt(req.params.id);
     const memId = parseInt(req.params.memId);
     if (isNaN(agentId) || isNaN(memId)) return res.status(400).json({ error: "Ongeldig ID" });
-    const mem = storage.getMemory(memId);
+    const mem = await storage.getMemory(memId);
     if (!mem || mem.agentId !== agentId) return res.status(404).json({ error: "Herinnering niet gevonden" });
     // Wist óók het profiel dat op dit feit gebouwd is; herbouw draait erachteraan.
     void forgetMemory(agentId, memId);
@@ -411,13 +411,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // DELETE /api/agents/:id/memory — wis het volledige geheugen van deze agent.
-  app.delete("/api/agents/:id/memory", (req, res) => {
+  app.delete("/api/agents/:id/memory", async (req, res) => {
     const agentId = parseInt(req.params.id);
     if (isNaN(agentId)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    if (!storage.getAgent(agentId)) return res.status(404).json({ error: "Agent niet gevonden" });
+    if (!(await storage.getAgent(agentId))) return res.status(404).json({ error: "Agent niet gevonden" });
     // Wist L1 + L3 én verzet de extractie-watermark, anders komen de gewiste
     // feiten bij de eerstvolgende extractie gewoon weer terug.
-    forgetAll(agentId);
+    await forgetAll(agentId);
     res.status(204).end();
   });
 
@@ -470,7 +470,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Start de in-proces loop-scheduler.
-  startScheduler();
+  await startScheduler();
 
   // GET /api/free-llm-providers — catalogus van gratis LLM API-providers.
   // Statische, geverifieerde momentopname (zie shared/freeLlmProviders.ts).
@@ -484,24 +484,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/agents/:id/routing — welke gratis provider past bij deze agent.
-  app.get("/api/agents/:id/routing", (req, res) => {
+  app.get("/api/agents/:id/routing", async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "Ongeldig agent ID" });
-    const agent = storage.getAgent(id);
+    const agent = await storage.getAgent(id);
     if (!agent) return res.status(404).json({ error: "Agent niet gevonden" });
     res.json({ paidDefault: PAID_DEFAULT, ...recommendForAgent(agent) });
   });
 
   // GET /api/stats
-  app.get("/api/stats", (req, res) => {
-    const stats = storage.getStats();
+  app.get("/api/stats", async (req, res) => {
+    const stats = await storage.getStats();
     res.json(stats);
   });
 
   // GET /api/activity
-  app.get("/api/activity", (req, res) => {
-    const tasks = storage.getTasks();
-    const agents = storage.getAgents();
+  app.get("/api/activity", async (req, res) => {
+    const tasks = await storage.getTasks();
+    const agents = await storage.getAgents();
     const agentMap = Object.fromEntries(agents.map(a => [a.id, a]));
 
     const recent = tasks

@@ -128,7 +128,7 @@ export function buildStateEntry(
 
 async function executeLoop(loop: Loop): Promise<LoopRun> {
   const runAt = new Date().toISOString();
-  const agent = storage.getAgent(loop.agentId);
+  const agent = await storage.getAgent(loop.agentId);
   const agentName = agent?.name ?? "Agent";
 
   // Budget reserveren (maker ~1024 + checker ~512 output, plus overhead).
@@ -146,7 +146,7 @@ async function executeLoop(loop: Loop): Promise<LoopRun> {
   // Loop-STATE is táák-geheugen; het persona-profiel (uit de chat) is
   // gebruikers-geheugen. We geven de maker beide mee: wie is de gebruiker + waar
   // stond deze loop. withPersona laat de prompt ongemoeid als er geen persona is.
-  const systemPrompt = withPersona(loop.agentId, getAgentSystemPrompt(loop.agentId));
+  const systemPrompt = await withPersona(loop.agentId, getAgentSystemPrompt(loop.agentId));
   let tokensUsed = 0;
 
   try {
@@ -212,12 +212,12 @@ Antwoord UITSLUITEND met één JSON-object, zonder tekst eromheen:
 }
 
 // Rungegevens wegschrijven + de loop bijwerken (state-ruggengraat, score, planning).
-function finishRun(
+async function finishRun(
   loop: Loop,
   runAt: string,
   result: { makerOutput: string; verdict: LoopRun["verdict"]; score: number; critique: string; tokensUsed: number },
-): LoopRun {
-  const run = storage.createLoopRun({
+): Promise<LoopRun> {
+  const run = await storage.createLoopRun({
     loopId: loop.id,
     makerOutput: result.makerOutput,
     verdict: result.verdict,
@@ -230,7 +230,7 @@ function finishRun(
   const entry = buildStateEntry(runAt, result.verdict, result.score, result.makerOutput, result.critique);
   const newState = trimState(`${entry}\n${loop.state ?? ""}`.trim());
 
-  storage.updateLoop(loop.id, {
+  await storage.updateLoop(loop.id, {
     state: newState,
     lastScore: result.score,
     lastVerdict: result.verdict,
@@ -250,7 +250,7 @@ async function tick() {
   if (running) return; // geen overlappende ticks
   running = true;
   try {
-    const due = storage.getDueLoops(new Date().toISOString());
+    const due = await storage.getDueLoops(new Date().toISOString());
     for (const loop of due) {
       console.log(`[scheduler] loop ${loop.id} (${loop.name}) draait…`);
       await runLoop(loop);
@@ -262,11 +262,11 @@ async function tick() {
   }
 }
 
-export function startScheduler() {
+export async function startScheduler() {
   // Zet nextRunAt voor ingeschakelde loops die er nog geen hebben.
-  for (const loop of storage.getLoops()) {
+  for (const loop of await storage.getLoops()) {
     if (loop.enabled && loop.cadence !== "manual" && !loop.nextRunAt) {
-      storage.updateLoop(loop.id, { nextRunAt: computeNextRunAt(loop.cadence) });
+      await storage.updateLoop(loop.id, { nextRunAt: computeNextRunAt(loop.cadence) });
     }
   }
   setInterval(tick, 60 * 1000);

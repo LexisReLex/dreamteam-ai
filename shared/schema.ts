@@ -1,10 +1,15 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, serial, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Tijdstempels bewaren we bewust als ISO-string (`text`), niet als Postgres
+// `timestamp`. De hele app vergelijkt en sorteert er lexicaal op
+// (bv. createdAt.localeCompare) — ISO-8601 is daarvoor sorteerbaar, en zo
+// blijft die logica bij de migratie SQLite → Postgres ongewijzigd.
+
 // Agents table
-export const agents = sqliteTable("agents", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const agents = pgTable("agents", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   role: text("role").notNull(),
   description: text("description").notNull(),
@@ -21,8 +26,8 @@ export type InsertAgent = z.infer<typeof insertAgentSchema>;
 export type Agent = typeof agents.$inferSelect;
 
 // Tasks table
-export const tasks = sqliteTable("tasks", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
   agentId: integer("agent_id").notNull(),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
@@ -37,8 +42,8 @@ export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
 
 // Messages table
-export const messages = sqliteTable("messages", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
   agentId: integer("agent_id").notNull(),
   role: text("role", { enum: ["user", "assistant"] }).notNull(),
   content: text("content").notNull(),
@@ -50,14 +55,14 @@ export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
 
 // User profile table
-export const userProfile = sqliteTable("user_profile", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const userProfile = pgTable("user_profile", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   company: text("company").notNull(),
   plan: text("plan", { enum: ["starter", "pro", "team"] }).notNull().default("starter"),
-  notificationsEmail: integer("notifications_email", { mode: "boolean" }).notNull().default(true),
-  notificationsPush: integer("notifications_push", { mode: "boolean" }).notNull().default(true),
-  notificationsWeekly: integer("notifications_weekly", { mode: "boolean" }).notNull().default(false),
+  notificationsEmail: boolean("notifications_email").notNull().default(true),
+  notificationsPush: boolean("notifications_push").notNull().default(true),
+  notificationsWeekly: boolean("notifications_weekly").notNull().default(false),
   language: text("language").notNull().default("nl"),
 });
 
@@ -72,14 +77,14 @@ export const CADENCES = ["manual", "15m", "2h", "6h", "1d"] as const;
 export const LOOP_LEVELS = ["L1", "L2", "L3"] as const;
 export const LOOP_VERDICTS = ["APPROVE", "REJECT", "ESCALATE", "ERROR"] as const;
 
-export const loops = sqliteTable("loops", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const loops = pgTable("loops", {
+  id: serial("id").primaryKey(),
   agentId: integer("agent_id").notNull(),
   name: text("name").notNull(),
   objective: text("objective").notNull(),
   cadence: text("cadence", { enum: CADENCES }).notNull().default("manual"),
   level: text("level", { enum: LOOP_LEVELS }).notNull().default("L1"),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  enabled: boolean("enabled").notNull().default(false),
   state: text("state").notNull().default(""),
   lastScore: integer("last_score"),
   lastVerdict: text("last_verdict", { enum: LOOP_VERDICTS }),
@@ -98,8 +103,8 @@ export type InsertLoop = z.infer<typeof insertLoopSchema>;
 export type Loop = typeof loops.$inferSelect;
 
 // Loop runs — het runlog (maker-output + checker-oordeel)
-export const loopRuns = sqliteTable("loop_runs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const loopRuns = pgTable("loop_runs", {
+  id: serial("id").primaryKey(),
   loopId: integer("loop_id").notNull(),
   makerOutput: text("maker_output").notNull().default(""),
   verdict: text("verdict", { enum: LOOP_VERDICTS }).notNull(),
@@ -123,8 +128,8 @@ export const MEMORY_LAYERS = ["L1", "L3"] as const; // L0 = messages, L1 = atom,
 export const MEMORY_KINDS = ["fact", "preference", "goal", "context"] as const;
 
 // L1 — atomaire herinneringen (feiten/voorkeuren) gedestilleerd uit de dialoog.
-export const agentMemories = sqliteTable("agent_memories", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const agentMemories = pgTable("agent_memories", {
+  id: serial("id").primaryKey(),
   agentId: integer("agent_id").notNull(),
   layer: text("layer", { enum: MEMORY_LAYERS }).notNull().default("L1"),
   kind: text("kind", { enum: MEMORY_KINDS }).notNull().default("fact"),
@@ -151,8 +156,8 @@ export type InsertMemory = z.infer<typeof insertMemorySchema>;
 export type AgentMemory = typeof agentMemories.$inferSelect;
 
 // L3 — het gesynthetiseerde persona-profiel per agent (één rij per agent).
-export const agentPersonas = sqliteTable("agent_personas", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const agentPersonas = pgTable("agent_personas", {
+  id: serial("id").primaryKey(),
   agentId: integer("agent_id").notNull(),
   profile: text("profile").notNull().default(""),
   // Aantal herinneringen dat bestond toen dit profiel gesynthetiseerd werd —

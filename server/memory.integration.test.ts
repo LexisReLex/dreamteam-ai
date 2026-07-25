@@ -49,35 +49,35 @@ import { extractMemories, maybeSynthesizePersona, recallForChat, visibleMemories
 import { _clearEmbeddingCache } from "./embeddings";
 import { storage } from "./storage";
 
-function seedAgent(): number {
-  const agent = storage.createAgent({
+async function seedAgent(): Promise<number> {
+  const agent = await storage.createAgent({
     name: "Nova", role: "Marketing", description: "d", avatarColor: "#000", avatarIcon: "Megaphone",
     specialty: "s", status: "active", tasksCompleted: 0, category: "marketing",
   });
   return agent.id;
 }
 
-function chat(agentId: number, turns: number) {
+async function chat(agentId: number, turns: number) {
   for (let i = 0; i < turns; i++) {
-    storage.createMessage({ agentId, role: "user", content: `Vraag ${i} over mijn webshop en omzet` });
-    storage.createMessage({ agentId, role: "assistant", content: `Antwoord ${i}` });
+    await storage.createMessage({ agentId, role: "user", content: `Vraag ${i} over mijn webshop en omzet` });
+    await storage.createMessage({ agentId, role: "assistant", content: `Antwoord ${i}` });
   }
 }
 
 describe("geheugen-bedrading (integratie)", () => {
   let agentId: number;
-  beforeEach(() => {
+  beforeEach(async () => {
     createMock.mockClear();
-    agentId = seedAgent();
+    agentId = await seedAgent();
   });
 
   it("destilleert echte herinneringen uit de dialoog en slaat ze op in de database", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     const created = await extractMemories(agentId, { force: true });
 
     expect(createMock).toHaveBeenCalledTimes(1); // extractie-call gedaan
     expect(created.length).toBe(3);
-    const stored = visibleMemories(agentId);
+    const stored = (await visibleMemories(agentId));
     expect(stored.map((m) => m.content)).toContain("Lex runt een webshop in schoenen");
     // salience en kind komen echt uit de opslag terug
     const goal = stored.find((m) => m.kind === "goal");
@@ -88,41 +88,41 @@ describe("geheugen-bedrading (integratie)", () => {
   });
 
   it("triggert NIET automatisch onder de beurt-drempel, maar wel na genoeg beurten", async () => {
-    chat(agentId, 2); // < EXTRACT_EVERY_TURNS (4)
+    await chat(agentId, 2); // < EXTRACT_EVERY_TURNS (4)
     expect(await extractMemories(agentId)).toEqual([]);
     expect(createMock).not.toHaveBeenCalled();
 
-    chat(agentId, 3); // nu ruim boven de drempel
+    await chat(agentId, 3); // nu ruim boven de drempel
     const created = await extractMemories(agentId);
     expect(created.length).toBe(3);
   });
 
   it("ontdubbelt bij een tweede extractie en laat het geheugen niet groeien", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
-    const afterFirst = visibleMemories(agentId).length;
+    const afterFirst = (await visibleMemories(agentId)).length;
 
     // Zelfde soort gesprek → mock geeft dezelfde feiten → dedup moet ze weren.
-    chat(agentId, 3);
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
-    const afterSecond = visibleMemories(agentId).length;
+    const afterSecond = (await visibleMemories(agentId)).length;
 
     expect(afterSecond).toBe(afterFirst); // geen duplicaten
   });
 
   it("synthetiseert een persona-profiel (L3) uit de opgeslagen feiten", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
     const ok = await maybeSynthesizePersona(agentId, { force: true });
 
     expect(ok).toBe(true);
-    const persona = storage.getPersona(agentId);
+    const persona = await storage.getPersona(agentId);
     expect(persona?.profile).toContain("webshop");
     expect(persona?.memoryCount).toBeGreaterThan(0);
   });
 
   it("injecteert persona + relevante herinnering in het recall-blok voor de chat", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
     await maybeSynthesizePersona(agentId, { force: true });
 
@@ -132,12 +132,12 @@ describe("geheugen-bedrading (integratie)", () => {
     expect(recall.persona).toBe(true);
     expect(recall.memories.length).toBeGreaterThan(0);
     // recall markeert gebruik (use_count) — observability
-    const used = visibleMemories(agentId).filter((m) => m.useCount > 0);
+    const used = (await visibleMemories(agentId)).filter((m) => m.useCount > 0);
     expect(used.length).toBeGreaterThan(0);
   });
 
   it("laat twee gelijktijdige extracties niet dubbel draaien (concurrency-slot)", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     // Twee tegelijk afvuren (zoals een snelle beurt + 'onthoud nu').
     const [a, b] = await Promise.all([
       extractMemories(agentId, { force: true }),
@@ -148,11 +148,11 @@ describe("geheugen-bedrading (integratie)", () => {
     // Eén run levert de feiten, de ander wordt geweigerd (leeg) → geen duplicaten.
     const totalCreated = a.length + b.length;
     expect(totalCreated).toBe(3);
-    expect(visibleMemories(agentId).length).toBe(3);
+    expect((await visibleMemories(agentId)).length).toBe(3);
   });
 
   it("verzet de watermark zodat dezelfde beurten niet opnieuw worden geëxtraheerd", async () => {
-    chat(agentId, 3);
+    await chat(agentId, 3);
     await extractMemories(agentId, { force: true });
     createMock.mockClear();
 
@@ -161,7 +161,7 @@ describe("geheugen-bedrading (integratie)", () => {
     expect(again).toEqual([]);
     expect(createMock).not.toHaveBeenCalled();
     // Het interne watermark-baken lekt niet naar de zichtbare herinneringen.
-    expect(visibleMemories(agentId).every((m) => m.content !== MARKER_CONTENT)).toBe(true);
+    expect((await visibleMemories(agentId)).every((m) => m.content !== MARKER_CONTENT)).toBe(true);
   });
 });
 
@@ -182,13 +182,13 @@ describe("semantische recall — ingeschakelde path (gemockt endpoint)", () => {
   }
 
   let agentId: number;
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.EMBEDDINGS_API_KEY = "sk-test-123";
     _clearEmbeddingCache();
-    agentId = seedAgent();
-    storage.createMemory({ agentId, layer: "L1", kind: "goal", content: "Wil de omzet verdubbelen", keywords: "omzet doel", salience: 80, sourceMessageId: null });
-    storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Rijdt in een elektrische wagen", keywords: "wagen elektrisch", salience: 70, sourceMessageId: null });
-    storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Doet elk jaar de belastingaangifte", keywords: "belasting aangifte", salience: 60, sourceMessageId: null });
+    agentId = await seedAgent();
+    await storage.createMemory({ agentId, layer: "L1", kind: "goal", content: "Wil de omzet verdubbelen", keywords: "omzet doel", salience: 80, sourceMessageId: null });
+    await storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Rijdt in een elektrische wagen", keywords: "wagen elektrisch", salience: 70, sourceMessageId: null });
+    await storage.createMemory({ agentId, layer: "L1", kind: "fact", content: "Doet elk jaar de belastingaangifte", keywords: "belasting aangifte", salience: 60, sourceMessageId: null });
 
     vi.stubGlobal(
       "fetch",
