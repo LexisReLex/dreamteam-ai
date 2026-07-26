@@ -10,6 +10,7 @@ import { runLoop, computeNextRunAt, startScheduler } from "./loops";
 import { accessGuard } from "./security";
 import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
 import { embeddingsInfo, embed } from "./embeddings";
+import { isInjection, defensiveSystemNote, guardInfo } from "./promptGuard";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
@@ -205,7 +206,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // budget in de systeemprompt injecteren. Puur lokaal en synchroon, dus geen
     // extra latency. Gaat mee naar élke provider — ook het gratis Groq-pad.
     const recall = await recallForChat(agentId, content);
-    const systemPrompt = basePrompt + recall.block;
+    let systemPrompt = basePrompt + recall.block;
+
+    // Prompt-Guard (geleend van gstack): trapt de binnenkomende beurt een
+    // injectie-heuristiek, dan zetten we een defensieve kadering vóór de
+    // systeemprompt. Puur additief — het bericht wordt nooit geblokkeerd; het
+    // model wordt er alleen aan herinnerd om binnen zijn rol te blijven.
+    if (isInjection(content)) {
+      systemPrompt = defensiveSystemNote() + systemPrompt;
+      console.warn(`[promptGuard] agent ${agentId}: verdachte instructie in chat — defensieve kadering toegevoegd.`);
+    }
 
     // Schat tokens: ~4 chars per token, plus systeem-prompt overhead. Het
     // geheugenblok telt mee, anders onderschat de budgetreservering het verbruik.
@@ -441,6 +451,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err: any) {
       res.json({ enabled: true, ok: false, model: info.model, error: err?.message || String(err) });
     }
+  });
+
+  // GET /api/prompt-guard/health — status van de keyless prompt-injectie-guard
+  // (geleend van gstack). Geen key, geen geheim: rapporteert alleen of hij aanstaat
+  // en de risicodrempel. Zo is verifieerbaar dat de bescherming actief is.
+  app.get("/api/prompt-guard/health", (_req, res) => {
+    res.json(guardInfo());
   });
 
   // ─── SEO-audit (keyless technische analyzer) ────────────────────────────────

@@ -2,7 +2,26 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-25 · **Branch:** `claude/mempalace-repo-ari3y3`
+**Laatst bijgewerkt:** 2026-07-26 · **Branch:** `claude/gstack-repository-setup-ptgxeh`
+
+## gstack — onderzocht & besloten (2026-07-26)
+
+Vraag: *"Het hele traject"* (github.com/garrytan/gstack). **Besluit: niet
+installeren** — gstack is een Claude Code **skill-suite** (Bun/Playwright/iOS-daemons,
+22–721MB ML-classifiers), geen npm-library en geen product-feature; verkeerde vorm én
+stack voor deze webapp. Wél geleend: het kern-onderscheider **prompt-injection
+defense**, in de lichte tier (heuristiek), keyless native in TypeScript.
+
+Waarom het past: de chat voert onvertrouwde tekst aan de LLM's, én Agent Memory
+destilleert die tekst tot feiten die later in de systeemprompt komen — een geplante
+instructie kan zo een *persistente* directief worden. De guard (`server/promptGuard.ts`)
+weigert zulke atomen vóór opslag en kadert een verdachte live-beurt defensief. Puur
+additief: `PROMPT_GUARD=off` maakt het een no-op; blokkeert nooit een bericht.
+Volledig verhaal: **`docs/gstack.md`**. Verifieerbaar: `GET /api/prompt-guard/health`.
+Status: typecheck schoon, **155 tests groen** (was 140), build schoon. Standaard aan,
+geen oranje licht nodig (keyless).
+
+---
 
 ## MemPalace — onderzocht & besloten (2026-07-25)
 
