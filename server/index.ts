@@ -92,14 +92,23 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  // HOST is instelbaar zodat je bij zelf-hosting achter een tunnel op 127.0.0.1
+  // kunt binden en de app niet op het hele LAN staat. Default blijft 0.0.0.0
+  // (nodig op Railway en andere containerhosts).
+  const host = process.env.HOST || "0.0.0.0";
+  // reusePort wordt niet overal ondersteund: op macOS geeft het ENOTSUP en start
+  // de server helemaal niet. Linux (Railway) ondersteunt het wel.
+  const listenOptions: { port: number; host: string; reusePort?: boolean } = { port, host };
+  if (process.platform === "linux") listenOptions.reusePort = true;
+
+  // Zonder deze handler eindigt een mislukte listen als een unhandled 'error'
+  // event met een stacktrace — onleesbaar in een launchd- of containerlog.
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    console.error(`[server] kan niet luisteren op ${host}:${port} — ${err.code || ""} ${err.message}`);
+    process.exit(1);
+  });
+
+  httpServer.listen(listenOptions, () => {
+    log(`serving on ${host}:${port}`);
+  });
 })();
