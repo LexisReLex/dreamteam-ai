@@ -11,6 +11,13 @@ import { accessGuard } from "./security";
 import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories, forgetMemory, forgetAll } from "./memory";
 import { embeddingsInfo, embed } from "./embeddings";
 import { isInjection, defensiveSystemNote, guardInfo } from "./promptGuard";
+import {
+  reviewAndMaybeRevise,
+  selfReviewEnabled,
+  llmCriticEnabled,
+  reviewInfo,
+  type AnswerEvaluation,
+} from "./selfReview";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
@@ -263,6 +270,89 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       assistantContent = "Er is een fout opgetreden. Probeer het later opnieuw.";
     }
 
+    // ─── Self-Review (geleend van video-use): self-evaluate → begrensde loop-back ──
+    // Een keyless heuristische critic beoordeelt het antwoord; ALLEEN bij een echte
+    // tekortkoming (leeg, afgekapt, verkeerde taal, uitwijk, boilerplate, placeholder)
+    // volgt een begrensde revisie via HETZELFDE provider-pad (Groq gratis; Claude
+    // budget-bewaakt). Het gewone geval kost nul extra calls. Breekt de chat nooit;
+    // geeft nooit een slechter antwoord terug. Uitzetten: SELF_REVIEW=off.
+    if (selfReviewEnabled()) {
+      // Regenereer via hetzelfde pad: Groq eerst (gratis), anders Claude met budget.
+      const regenerate = async (revisionNote: string): Promise<string | null> => {
+        const revSystem = revisionNote + systemPrompt;
+        if (provider === "groq") {
+          try {
+            const r = await groqChat({ system: revSystem, messages: conversationHistory });
+            return r.content;
+          } catch (gErr: any) {
+            console.warn(`[selfReview] Groq-revisie faalde, val terug op Claude: ${gErr?.message || gErr}`);
+          }
+        }
+        if (!checkAndUpdateBudget(estimatedTokens)) return null; // geen budget → houd origineel
+        try {
+          const response = await anthropicClient.messages.create({
+            model: "claude-haiku-4-5",
+            max_tokens: 1024,
+            system: revSystem,
+            messages: conversationHistory,
+          });
+          if (response.usage) {
+            reconcileBudget(response.usage.input_tokens + response.usage.output_tokens, estimatedTokens);
+          }
+          return response.content[0]?.type === "text" ? response.content[0].text : null;
+        } catch (err: any) {
+          console.warn(`[selfReview] Claude-revisie faalde: ${err?.message || err}`);
+          reconcileBudget(0, estimatedTokens);
+          return null;
+        }
+      };
+
+      // Optionele Tier-2 LLM-critic (default UIT): een strenge, budget-bewaakte
+      // modelbeoordeling voor tekortkomingen die de heuristiek niet ziet.
+      const llmCritique = async (q: string, ans: string): Promise<AnswerEvaluation | null> => {
+        const estCritic = 600;
+        if (!checkAndUpdateBudget(estCritic)) return null;
+        let used = 0;
+        try {
+          const resp = await anthropicClient.messages.create({
+            model: "claude-haiku-4-5",
+            max_tokens: 400,
+            system:
+              'Je bent een strenge, onafhankelijke kwaliteitscontroleur. Beoordeel of het ANTWOORD de VRAAG echt, volledig en in de juiste taal (Nederlands tenzij de vraag anders is) beantwoordt, zonder verzinsels of ontwijking. Antwoord UITSLUITEND met één JSON-object, zonder tekst eromheen: {"score": <0-100>, "issues": ["<korte tekortkoming in het Nederlands>", ...]}. Bij een goed antwoord: hoge score en lege issues-lijst.',
+            messages: [{ role: "user", content: `VRAAG:\n${q}\n\nANTWOORD:\n${ans}\n\nGeef je oordeel als JSON.` }],
+          });
+          if (resp.usage) used = resp.usage.input_tokens + resp.usage.output_tokens;
+          const text = resp.content[0]?.type === "text" ? resp.content[0].text : "";
+          const m = text.match(/\{[\s\S]*\}/);
+          if (!m) return null;
+          const parsed = JSON.parse(m[0]);
+          const s = Number(parsed.score);
+          const score = Number.isFinite(s) ? Math.max(0, Math.min(1, s / 100)) : 0.5;
+          const issues = Array.isArray(parsed.issues) ? parsed.issues.map(String).filter(Boolean).slice(0, 5) : [];
+          return { ok: issues.length === 0, score, issues };
+        } catch {
+          return null; // degradeert netjes naar heuristiek-only
+        } finally {
+          reconcileBudget(used, estCritic);
+        }
+      };
+
+      try {
+        const outcome = await reviewAndMaybeRevise(content, assistantContent, {
+          regenerate,
+          llmCritique: llmCriticEnabled() ? llmCritique : undefined,
+        });
+        if (outcome.revised) {
+          console.log(
+            `[selfReview] agent ${agentId}: antwoord herzien (${outcome.revisions}x, score ${outcome.finalScore.toFixed(2)}) — ${outcome.initialIssues.join("; ")}`,
+          );
+          assistantContent = outcome.content;
+        }
+      } catch (err: any) {
+        console.warn(`[selfReview] overgeslagen door fout: ${err?.message || err}`);
+      }
+    }
+
     const assistantMsg = storage.createMessage({ agentId, role: "assistant", content: assistantContent });
 
     // ─── Agent Memory: destilleer nieuwe feiten uit de dialoog (asynchroon) ───
@@ -458,6 +548,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // en de risicodrempel. Zo is verifieerbaar dat de bescherming actief is.
   app.get("/api/prompt-guard/health", (_req, res) => {
     res.json(guardInfo());
+  });
+
+  // GET /api/self-review/health — status van de self-review-lus (geleend van
+  // video-use). Keyless heuristiek + optionele LLM-critic; geen geheim. Rapporteert
+  // of hij aanstaat, de revisie-cap, de drempel en of de Tier-2 LLM-critic aanstaat.
+  app.get("/api/self-review/health", (_req, res) => {
+    res.json(reviewInfo());
   });
 
   // ─── SEO-audit (keyless technische analyzer) ────────────────────────────────
