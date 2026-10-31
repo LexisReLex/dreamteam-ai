@@ -2,7 +2,16 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-26 · **Branch:** `claude/gstack-repository-setup-ptgxeh`
+**Laatst bijgewerkt:** 2026-10-31 · **Branch:** `claude/gstack-repository-setup-ptgxeh`
+
+## Merkmotor (eigen Holo): Cowork-opdracht klaar (2026-10-31)
+
+- **Onderzoek:** `docs/onderzoek/HOLO-benchmark-reverse-engineering-2026-10-31.md` (Holo/tryholo.ai: product, prijs, advertentiestructuur gedecodeerd uit hun UTM's).
+- **Gebouwd + gemerged (PR #24, `d767839`):** `server/brandDna.ts` + `POST /api/brand-dna/analyze`: keyless Brand DNA + 12 ad-briefs + campagneplan. 172 tests groen. Uitleg: `docs/brand-dna.md`. **Niet gedeployed.**
+- **Volgende:** `docs/handover/COWORK-PROMPT-merkmotor.md` in Claude Cowork plakken. Daar staan fasen F1–F7 (merken/workspaces, JS-render, Claude-copy key-gated, creatives, Meta-CSV-export, winnaars-lus, UI) + toepassen op eigen apps en een klantkit voor klantsites.
+- **GO-punten:** productie-deploy, advertentiebudget, Higgsfield-credits, Anthropic-key op Railway.
+
+---
 
 ## gstack — onderzocht & besloten (2026-07-26)
 
