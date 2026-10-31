@@ -12,6 +12,7 @@ import { recallForChat, extractMemories, maybeSynthesizePersona, visibleMemories
 import { embeddingsInfo, embed } from "./embeddings";
 import { isInjection, defensiveSystemNote, guardInfo } from "./promptGuard";
 import { fetchAndAnalyze, SeoError } from "./seo";
+import { fetchBrandDna } from "./brandDna";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
 import { chooseProvider, isGroqEnabled, groqChat } from "./groq";
@@ -477,6 +478,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       console.error("SEO-analyse fout:", err?.message || err);
       res.status(500).json({ error: "SEO-analyse mislukt. Probeer een andere URL." });
+    }
+  });
+
+  // ─── Brand DNA + advertentie-matrix (keyless, Holo-motor stap 1+2) ───────────
+  // POST /api/brand-dna/analyze { url } — merkprofiel + 12 ad-briefs + campagneplan.
+  // Zelfde SSRF-veilige fetch, guard en rate-limit als de SEO-audit.
+  app.post("/api/brand-dna/analyze", guard, rateLimit(10, 60 * 1000), async (req, res) => {
+    const result = seoAnalyzeSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "Geef een geldige URL op." });
+    try {
+      res.json(await fetchBrandDna(result.data.url));
+    } catch (err: any) {
+      if (err instanceof SeoError) {
+        const status = err.code === "UNSAFE_URL" ? 400 : 502;
+        return res.status(status).json({ error: err.message });
+      }
+      console.error("Brand DNA fout:", err?.message || err);
+      res.status(500).json({ error: "Brand DNA-analyse mislukt. Probeer een andere URL." });
     }
   });
 

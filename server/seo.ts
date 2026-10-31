@@ -567,9 +567,16 @@ function headersToObject(headers: Headers): Record<string, string> {
   return out;
 }
 
-/** Haalt een URL SSRF-veilig op (elke redirect-hop wordt opnieuw gevalideerd),
- * capt de body op 2MB en analyseert de HTML. */
-export async function fetchAndAnalyze(rawUrl: string): Promise<SeoReport> {
+export interface SafePage {
+  html: string;
+  finalUrl: URL;
+  statusCode: number;
+  headers: Record<string, string>;
+}
+
+/** Haalt een URL SSRF-veilig op (elke redirect-hop wordt opnieuw gevalideerd)
+ * en capt de body op 2MB. Gedeeld door de SEO-audit en de Brand DNA-extractor. */
+export async function fetchHtmlSafe(rawUrl: string, userAgent = "DreamTeamSEO/1.0 (+https://dreamteam.nl; keyless SEO audit)"): Promise<SafePage> {
   let current = await assertUrlSafe(rawUrl);
   let response: Response | null = null;
 
@@ -583,7 +590,7 @@ export async function fetchAndAnalyze(rawUrl: string): Promise<SeoReport> {
         redirect: "manual",
         signal: controller.signal,
         headers: {
-          "User-Agent": "DreamTeamSEO/1.0 (+https://dreamteam.nl; keyless SEO audit)",
+          "User-Agent": userAgent,
           Accept: "text/html,application/xhtml+xml",
         },
       });
@@ -608,18 +615,24 @@ export async function fetchAndAnalyze(rawUrl: string): Promise<SeoReport> {
 
   // Lees de body met een harde bytelimiet.
   const html = await readCapped(response, MAX_BYTES);
-  const headers = headersToObject(response.headers);
+  return { html, finalUrl: current, statusCode: response.status, headers: headersToObject(response.headers) };
+}
+
+/** Haalt een URL SSRF-veilig op en analyseert de HTML. */
+export async function fetchAndAnalyze(rawUrl: string): Promise<SeoReport> {
+  const page = await fetchHtmlSafe(rawUrl);
+  const current = page.finalUrl;
 
   // Best-effort site-signalen (robots.txt + sitemap) — mag de hoofdanalyse
   // nooit laten falen.
   const site = await fetchSiteSignals(current.origin).catch(() => null);
 
-  return analyze(html, {
+  return analyze(page.html, {
     url: rawUrl,
     finalUrl: current.toString(),
-    statusCode: response.status,
+    statusCode: page.statusCode,
     https: current.protocol === "https:",
-    headers,
+    headers: page.headers,
     site,
   });
 }
