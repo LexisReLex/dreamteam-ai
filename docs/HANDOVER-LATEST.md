@@ -2,7 +2,7 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-10-31 · **Branch:** `claude/gstack-repository-setup-ptgxeh`
+**Laatst bijgewerkt:** 2026-10-31 · **Branch:** `main` (+ `docs/cowork-merkmotor-handover`)
 
 ## Merkmotor (eigen Holo): Cowork-opdracht klaar (2026-10-31)
 
