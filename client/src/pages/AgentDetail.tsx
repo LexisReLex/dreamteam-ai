@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { getLucideIcon } from "@/lib/icons";
 import SeoAuditPanel from "@/components/SeoAuditPanel";
+import AdAuditPanel from "@/components/AdAuditPanel";
 import ModelRoutingPanel from "@/components/ModelRoutingPanel";
 import type { Agent, Message, Task, AgentMemory, AgentPersona } from "@shared/schema";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -214,6 +215,9 @@ export default function AgentDetail() {
 
         {/* SEO-audit — alleen voor Kai (SEO Specialist) */}
         {agentId === 4 && <SeoAuditPanel />}
+
+        {/* Advertentiecontrole — alleen voor Nova (Marketing Strateeg) */}
+        {agentId === 1 && <AdAuditPanel />}
 
         {/* Task history */}
         <div>
