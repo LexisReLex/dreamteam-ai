@@ -2,7 +2,23 @@
 
 > Warme start voor de volgende sessie (o.a. op de Mac). Lees dit eerst.
 
-**Laatst bijgewerkt:** 2026-07-26 · **Branch:** `claude/gstack-repository-setup-ptgxeh`
+**Laatst bijgewerkt:** 2026-11-25 · **Branch:** `claude/vibrant-hawking-x3p7cc`
+
+## claude-ads — herbeoordeeld & gebouwd (2026-11-25)
+
+Vraag: claude-ads (AgriciDaniel) onderzoeken, alles installeren wat past, kijken wat het voor de
+marketing kan doen. Eerder besluit 12 sep (🔴 plugin, 🔵 audit, 🟡 9 patronen, alle 9 nu in het account).
+Herbeoordeeld op HEAD `fc3908e` (v2.1.0). **Plugin blijft 🔴** (fit, tweede besturingslaag,
+zware runtime; Cockpit-mod heeft sessiestart-hooks). **Wél gebouwd:** `POST /api/ad-audit/meta`,
+een keyless Meta-advertentiecontrole op een export (budgetverdeling, UTM, frequentie, creatieve
+moeheid, leerfase, vergelijkbaarheid; geen totaalscore), plus paneel bij Nova en de advertentiemethodiek
+in Nova's prompt. Volledig verhaal: **`docs/claude-ads.md`**. Status: typecheck schoon,
+**193 tests groen** (was 172), build schoon, live nagemeten met screenshot.
+Oogst-bestanden (4 nieuwe regels + 1 ontdubbeling): `docs/oogst/claude-ads-2026-11-25/`.
+**Eerste echte meting open:** één echte export uit Advertentiebeheer door het paneel halen. De
+Nederlandse kolomnamen zijn niet nagemeten; onherkende kolommen staan in `unmappedColumns`.
+
+---
 
 ## gstack — onderzocht & besloten (2026-07-26)
 

@@ -13,6 +13,8 @@ import { embeddingsInfo, embed } from "./embeddings";
 import { isInjection, defensiveSystemNote, guardInfo } from "./promptGuard";
 import { fetchAndAnalyze, SeoError } from "./seo";
 import { fetchBrandDna } from "./brandDna";
+import { auditMeta, auditMetaCsv, AdAuditError } from "./adAudit";
+import express from "express";
 import { LLM_PROVIDERS, getProviderSummary } from "@shared/freeLlmProviders";
 import { recommendForAgent, allRecommendations, PAID_DEFAULT } from "./modelRouter";
 import { chooseProvider, isGroqEnabled, groqChat } from "./groq";
@@ -498,6 +500,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ error: "Brand DNA-analyse mislukt. Probeer een andere URL." });
     }
   });
+
+  // ─── Advertentiecontrole Meta (keyless, patronen uit claude-ads) ─────────────
+  // POST /api/ad-audit/meta
+  //   Content-Type: text/csv  → body = de export uit Advertentiebeheer (max 2MB)
+  //   Content-Type: application/json → { rows: [...Insights-API-rijen], thresholds?: {...} }
+  // Geen netwerk, geen sleutel, geen accountwijziging. Thresholds via ?minImpressions=…&maxAdsetShare=…
+  const thresholdSchema = z.object({
+    minImpressions: z.coerce.number().int().min(1).max(1_000_000).optional(),
+    maxAdsetShare: z.coerce.number().min(0.1).max(1).optional(),
+    maxFrequency: z.coerce.number().min(1).max(50).optional(),
+    maxCtrDrop: z.coerce.number().min(0.01).max(1).optional(),
+  });
+  const adAuditJsonSchema = z.object({
+    rows: z.array(z.record(z.unknown())).min(1).max(20000),
+    thresholds: thresholdSchema.optional(),
+  });
+  app.post(
+    "/api/ad-audit/meta",
+    guard,
+    rateLimit(10, 60 * 1000),
+    express.text({ type: ["text/csv", "text/plain"], limit: "2mb" }),
+    (req, res) => {
+      try {
+        const q = thresholdSchema.safeParse(req.query);
+        if (!q.success) return res.status(400).json({ error: "Ongeldige drempel in de URL." });
+        if (typeof req.body === "string") {
+          if (!req.body.trim()) return res.status(400).json({ error: "Plak eerst een export." });
+          return res.json(auditMetaCsv(req.body, q.data));
+        }
+        const parsed = adAuditJsonSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: "Stuur een CSV (text/csv) of { rows: [...] }." });
+        res.json(auditMeta(parsed.data.rows, { ...q.data, ...parsed.data.thresholds }));
+      } catch (err: any) {
+        if (err instanceof AdAuditError) return res.status(422).json({ error: err.message });
+        console.error("Advertentiecontrole fout:", err?.message || err);
+        res.status(500).json({ error: "Advertentiecontrole mislukt." });
+      }
+    },
+  );
 
   // GET /api/headroom — cumulatieve besparing van de context-compressielaag.
   // Elke bespaarde token is budget dat chat + loops níet verbruikt hebben.
